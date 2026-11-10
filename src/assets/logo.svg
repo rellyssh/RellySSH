@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <radialGradient id="bgGrad" cx="50%" cy="30%" r="80%" fx="50%" fy="20%">
+      <stop offset="0%" stop-color="#0c234a" />
+      <stop offset="50%" stop-color="#07152f" />
+      <stop offset="100%" stop-color="#030914" />
+    </radialGradient>
+
+    <!-- Electric Cyan/Blue Glow -->
+    <linearGradient id="neonBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#21d4f5" />
+      <stop offset="100%" stop-color="#087bff" />
+    </linearGradient>
+
+    <linearGradient id="lockBodyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#102d62" />
+      <stop offset="100%" stop-color="#091b3a" />
+    </linearGradient>
+
+    <!-- Filter for Glow effects -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Base Rounded Container -->
+  <rect width="512" height="512" rx="128" fill="url(#bgGrad)" />
+  <rect width="510" height="510" x="1" y="1" rx="127" fill="none" stroke="#21d4f5" stroke-width="2" stroke-opacity="0.25" />
+
+  <!-- Orbit Ring 1 (SSH Network) -->
+  <circle cx="256" cy="256" r="190" fill="none" stroke="#087bff" stroke-width="2.5" stroke-dasharray="16 12" stroke-opacity="0.35" transform="rotate(-25 256 256)" />
+  <circle cx="256" cy="256" r="160" fill="none" stroke="#21d4f5" stroke-width="1.5" stroke-opacity="0.2" />
+
+  <!-- Node Dots along Orbit -->
+  <circle cx="395" cy="180" r="6" fill="#21d4f5" filter="url(#glow)" />
+  <circle cx="115" cy="330" r="5" fill="#087bff" filter="url(#glow)" />
+  <circle cx="256" cy="66" r="4" fill="#ffffff" filter="url(#glow)" />
+
+  <!-- Vault Shackle (Candado de Seguridad) -->
+  <path d="M196 220 V160 C196 125 220 98 256 98 C292 98 316 125 316 160 V220" 
+        fill="none" 
+        stroke="url(#neonBlue)" 
+        stroke-width="22" 
+        stroke-linecap="round" 
+        filter="url(#glow)" />
+
+  <!-- Vault Main Plate (Hexagonal Shield / Lock Body) -->
+  <path d="M150 210 H362 C376 210 388 222 388 236 V350 C388 395 256 440 256 440 C256 440 124 395 124 350 V236 C124 222 136 210 150 210 Z" 
+        fill="url(#lockBodyGrad)" 
+        stroke="url(#neonBlue)" 
+        stroke-width="6" />
+
+  <!-- Terminal CLI Prompt: '>_' inside the Lock Core -->
+  <!-- Prompt Chevron '>' -->
+  <path d="M195 270 L245 305 L195 340" 
+        fill="none" 
+        stroke="#21d4f5" 
+        stroke-width="15" 
+        stroke-linecap="round" 
+        stroke-linejoin="round" 
+        filter="url(#glow)" />
+
+  <!-- Prompt Cursor '_' -->
+  <line x1="265" y1="340" x2="315" y2="340" 
+        stroke="#ffffff" 
+        stroke-width="15" 
+        stroke-linecap="round" 
+        filter="url(#glow)" />
+</svg>
