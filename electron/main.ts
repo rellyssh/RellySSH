@@ -132,6 +132,29 @@ function createWindow() {
     }
   });
 
+  ipcMain.handle('vault:getRaw', async (_, filePath?: string) => {
+    const p = filePath || currentVaultPath || defaultVaultFile;
+    try {
+      return await fs.readFile(p, 'utf8');
+    } catch {
+      return null;
+    }
+  });
+
+  ipcMain.handle('vault:saveRaw', async (_, { rawJson, filePath }: { rawJson: string; filePath?: string }) => {
+    const p = filePath || currentVaultPath || defaultVaultFile;
+    try {
+      JSON.parse(rawJson);
+      const tempPath = `${p}.tmp.${Date.now()}`;
+      await fs.writeFile(tempPath, rawJson, 'utf8');
+      await fs.rename(tempPath, p);
+      currentVaultPath = p;
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('vault:selectFileToOpen', async () => {
     if (!win) return null;
     const res = await dialog.showOpenDialog(win, {

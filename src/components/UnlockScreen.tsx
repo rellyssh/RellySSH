@@ -1,7 +1,15 @@
-import React, { useState } from 'react';
-import { Card, Heading, Text, TextField, Button, Flex, Callout, Tabs, Box, Select, Progress } from '@radix-ui/themes';
-import { Lock, KeyRound, FolderOpen, AlertCircle, Sparkles, Cpu, ShieldAlert } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Card, Heading, Text, TextField, Button, Flex, Callout, Tabs, Box, Select, Progress, Badge } from '@radix-ui/themes';
+import { Lock, KeyRound, FolderOpen, AlertCircle, Sparkles, Cpu, ShieldAlert, CloudDownload, CheckCircle2, ExternalLink } from 'lucide-react';
+import { GitHubLogoIcon } from '@radix-ui/react-icons';
 import type { VaultData } from '../types';
+import {
+  getGitHubConfig,
+  saveGitHubConfig,
+  validateGitHubToken,
+  pullVaultFromGitHub,
+  GITHUB_TOKEN_CREATE_URL
+} from '../services/githubSync';
 import logoSvg from '../assets/logo.svg';
 
 interface Props {
@@ -9,12 +17,24 @@ interface Props {
 }
 
 export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
-  const [tab, setTab] = useState<'unlock' | 'create'>('unlock');
+  const [tab, setTab] = useState<'unlock' | 'create' | 'github'>('unlock');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [filePath, setFilePath] = useState<string>('');
   const [profile, setProfile] = useState<'standard' | 'strong' | 'maximum'>('strong');
   const [error, setError] = useState<string | null>(null);
+  const [successInfo, setSuccessInfo] = useState<string | null>(null);
+
+  // GitHub Restore state
+  const [githubToken, setGithubToken] = useState('');
+  const [isPullingFromGitHub, setIsPullingFromGitHub] = useState(false);
+
+  useEffect(() => {
+    const config = getGitHubConfig();
+    if (config?.token) {
+      setGithubToken(config.token);
+    }
+  }, []);
   
   // Status during encryption/decryption
   const [isProcessing, setIsProcessing] = useState(false);
@@ -115,6 +135,50 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
     }
   };
 
+  const handleGitHubRestore = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!githubToken.trim()) {
+      setError('Por favor ingresá tu Personal Access Token de GitHub.');
+      return;
+    }
+    setIsPullingFromGitHub(true);
+    setError(null);
+    setSuccessInfo(null);
+
+    try {
+      const validation = await validateGitHubToken(githubToken);
+      if (!validation.valid || !validation.user) {
+        throw new Error(validation.error || 'Token inválido o sin acceso a Gists.');
+      }
+
+      const res = await pullVaultFromGitHub(githubToken);
+      if (!res.success || !res.encryptedContent) {
+        throw new Error(res.error || 'No se encontró la bóveda de RellySSH en tu cuenta de GitHub.');
+      }
+
+      const saveRes = await window.electronAPI.saveRawVault(res.encryptedContent);
+      if (!saveRes.success) {
+        throw new Error(saveRes.error || 'Error al guardar la bóveda descargada.');
+      }
+
+      saveGitHubConfig({
+        token: githubToken.trim(),
+        user: validation.user,
+        gistId: res.gistId,
+        autoSync: true,
+        lastSyncTime: res.updatedAt,
+        lastSyncAction: 'pull'
+      });
+
+      setSuccessInfo(`¡Bóveda de @${validation.user.login} descargada exitosamente! Ingresá tu contraseña maestra para abrirla.`);
+      setTab('unlock');
+    } catch (err: any) {
+      setError(err.message || 'Error al restaurar desde GitHub.');
+    } finally {
+      setIsPullingFromGitHub(false);
+    }
+  };
+
   return (
     <Flex
       align="center"
@@ -165,6 +229,15 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
             </Callout.Root>
           )}
 
+          {successInfo && (
+            <Callout.Root color="green" size="1">
+              <Callout.Icon>
+                <CheckCircle2 size={16} />
+              </Callout.Icon>
+              <Callout.Text>{successInfo}</Callout.Text>
+            </Callout.Root>
+          )}
+
           {/* Animación de procesamiento criptográfico */}
           {isProcessing ? (
             <Flex direction="column" align="center" justify="center" py="6" gap="3">
@@ -195,13 +268,16 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
               </Text>
             </Flex>
           ) : (
-            <Tabs.Root value={tab} onValueChange={(val) => { setTab(val as any); setError(null); }}>
+            <Tabs.Root value={tab} onValueChange={(val) => { setTab(val as any); setError(null); setSuccessInfo(null); }}>
               <Tabs.List size="2" style={{ width: '100%' }}>
                 <Tabs.Trigger value="unlock" style={{ flex: 1 }}>
-                  <KeyRound size={14} style={{ marginRight: 6 }} /> Abrir Bóveda
+                  <KeyRound size={14} style={{ marginRight: 6 }} /> Abrir
                 </Tabs.Trigger>
                 <Tabs.Trigger value="create" style={{ flex: 1 }}>
-                  <Sparkles size={14} style={{ marginRight: 6 }} /> Crear Bóveda V2
+                  <Sparkles size={14} style={{ marginRight: 6 }} /> Crear
+                </Tabs.Trigger>
+                <Tabs.Trigger value="github" style={{ flex: 1 }}>
+                  <GitHubLogoIcon width={14} height={14} style={{ marginRight: 6 }} /> GitHub
                 </Tabs.Trigger>
               </Tabs.List>
 
@@ -250,7 +326,7 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
                       </Button>
                     </Flex>
                   </form>
-                ) : (
+                ) : tab === 'create' ? (
                   <form onSubmit={handleCreate}>
                     <Flex direction="column" gap="3">
                       <Flex direction="column" gap="1">
@@ -337,6 +413,63 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
 
                       <Button type="submit" size="3" variant="solid" mt="2" style={{ background: '#087bff', color: '#fff', cursor: 'pointer' }}>
                         Inicializar Bóveda V2
+                      </Button>
+                    </Flex>
+                  </form>
+                ) : (
+                  <form onSubmit={handleGitHubRestore}>
+                    <Flex direction="column" gap="3">
+                      <Callout.Root color="blue" size="1">
+                        <Callout.Icon>
+                          <GitHubLogoIcon width={16} height={16} />
+                        </Callout.Icon>
+                        <Callout.Text>
+                          Descargá tu bóveda cifrada desde tu cuenta de GitHub para sincronizar este dispositivo.
+                        </Callout.Text>
+                      </Callout.Root>
+
+                      <Flex direction="column" gap="1">
+                        <Flex justify="between" align="center">
+                          <Text size="1" weight="medium" style={{ color: '#88a0c5' }}>
+                            Personal Access Token de GitHub
+                          </Text>
+                          <a
+                            href={GITHUB_TOKEN_CREATE_URL}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{
+                              fontSize: 11,
+                              color: '#21d4f5',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 3,
+                              textDecoration: 'none'
+                            }}
+                          >
+                            Crear Token <ExternalLink size={10} />
+                          </a>
+                        </Flex>
+                        <TextField.Root
+                          type="password"
+                          size="2"
+                          placeholder="ghp_... o github_pat_..."
+                          value={githubToken}
+                          onChange={(e) => setGithubToken(e.target.value)}
+                        />
+                        <Text size="1" color="gray">
+                          Solo requiere permiso <Badge color="indigo" size="1">gist</Badge>.
+                        </Text>
+                      </Flex>
+
+                      <Button
+                        type="submit"
+                        size="3"
+                        variant="solid"
+                        mt="2"
+                        loading={isPullingFromGitHub}
+                        style={{ background: '#087bff', color: '#fff', cursor: 'pointer' }}
+                      >
+                        <CloudDownload size={16} style={{ marginRight: 6 }} /> Descargar Bóveda Cifrada
                       </Button>
                     </Flex>
                   </form>

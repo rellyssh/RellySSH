@@ -127,6 +127,20 @@ export const mobileBridge: IElectronAPI = {
     }
   },
 
+  getRawVault: async () => {
+    return localStorage.getItem(STORAGE_VAULT_KEY);
+  },
+
+  saveRawVault: async (rawJson: string) => {
+    try {
+      JSON.parse(rawJson);
+      localStorage.setItem(STORAGE_VAULT_KEY, rawJson);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  },
+
   selectFileToOpen: async () => null,
   selectFileToSave: async () => STORAGE_DEFAULT_PATH,
 

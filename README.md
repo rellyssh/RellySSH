@@ -60,6 +60,11 @@ Are you fed up with the current state of SSH clients? So were we.
   - Choose between **Standard** (2s calibration), **Strong** (5s), and **Maximum Brute-Force Resistance** (10s target derivational complexity).
 - 🌐 **True Cross-Platform**:
   - Runs natively on **Linux**, **macOS**, **Windows**, and **Android**.
+- ☁️ **GitHub Zero-Knowledge Cloud Sync & Backup**:
+  - Link your GitHub account with a Personal Access Token to backup and synchronize your `.vault` across desktop and mobile devices via a private GitHub Gist.
+  - **Zero-Knowledge Guarantee**: Only the encrypted ciphertext (Argon2id + AES-256-GCM) is uploaded. Master passwords, server credentials, and SSH keys are never transmitted.
+  - **Auto-Sync**: Automatically updates your backup whenever servers or keys are modified, with manual one-click Push/Pull.
+  - **Instant Cross-Device Restore**: Download and decrypt your vault directly from the Unlock Screen on any new machine or phone.
 
 ---
 

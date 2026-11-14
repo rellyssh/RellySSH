@@ -30,13 +30,17 @@ import {
   Copy,
   X,
   Search,
-  CheckCircle2
+  CheckCircle2,
+  Cloud
 } from 'lucide-react';
+import { GitHubLogoIcon } from '@radix-ui/react-icons';
 import type { VaultData, SSHServer, SSHKey } from './types';
 import { UnlockScreen } from './components/UnlockScreen';
 import { ServerModal } from './components/ServerModal';
 import { KeyModal } from './components/KeyModal';
 import { TerminalTab } from './components/TerminalTab';
+import { GitHubSyncModal } from './components/GitHubSyncModal';
+import { getGitHubConfig, saveGitHubConfig, pushVaultToGitHub } from './services/githubSync';
 import logoSvg from './assets/logo.svg';
 
 interface OpenSession {
@@ -58,6 +62,7 @@ export default function App() {
   const [isServerModalOpen, setIsServerModalOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<SSHServer | null>(null);
   const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
+  const [isGitHubModalOpen, setIsGitHubModalOpen] = useState(false);
 
   // Active SSH & local terminal sessions
   const [sessions, setSessions] = useState<OpenSession[]>([]);
@@ -101,6 +106,28 @@ export default function App() {
   const persistVault = async (updated: VaultData) => {
     setVault(updated);
     await window.electronAPI.saveVault(updated, currentPath || undefined);
+
+    // Auto-sync to GitHub if configured
+    const ghConfig = getGitHubConfig();
+    if (ghConfig?.autoSync && ghConfig.token) {
+      try {
+        const raw = await window.electronAPI.getRawVault(currentPath || undefined);
+        if (raw) {
+          const res = await pushVaultToGitHub(ghConfig.token, raw, ghConfig.gistId);
+          if (res.success) {
+            saveGitHubConfig({
+              ...ghConfig,
+              gistId: res.gistId,
+              gistUrl: res.gistUrl || ghConfig.gistUrl,
+              lastSyncTime: res.updatedAt,
+              lastSyncAction: 'push'
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Auto-sync error:', e);
+      }
+    }
   };
 
   const handleSaveServer = async (server: SSHServer) => {
@@ -376,7 +403,10 @@ export default function App() {
             </Text>
             <Flex gap="1" mt="2">
               <Button size="1" variant="soft" color="gray" style={{ flex: 1 }} onClick={handleExportVault}>
-                <Download size={13} style={{ marginRight: 4 }} /> Exportar (.vault)
+                <Download size={13} style={{ marginRight: 4 }} /> Exportar
+              </Button>
+              <Button size="1" variant="soft" color="iris" style={{ flex: 1 }} onClick={() => setIsGitHubModalOpen(true)}>
+                <GitHubLogoIcon width={13} height={13} style={{ marginRight: 4 }} /> GitHub
               </Button>
             </Flex>
           </Flex>
@@ -775,6 +805,13 @@ export default function App() {
       />
 
       <KeyModal open={isKeyModalOpen} onOpenChange={setIsKeyModalOpen} onSave={handleSaveKey} />
+
+      <GitHubSyncModal
+        isOpen={isGitHubModalOpen}
+        onClose={() => setIsGitHubModalOpen(false)}
+        onVaultUpdated={(data) => setVault(data)}
+        showToast={showToast}
+      />
     </Flex>
   );
 }

@@ -11,6 +11,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('vault:init', { password, filePath, profile }),
   saveVault: (data: VaultData, filePath?: string, password?: string, profile?: string) =>
     ipcRenderer.invoke('vault:save', { data, filePath, password, profile }),
+  getRawVault: (filePath?: string) =>
+    ipcRenderer.invoke('vault:getRaw', filePath),
+  saveRawVault: (rawJson: string, filePath?: string) =>
+    ipcRenderer.invoke('vault:saveRaw', { rawJson, filePath }),
   selectFileToOpen: () => ipcRenderer.invoke('vault:selectFileToOpen'),
   selectFileToSave: () => ipcRenderer.invoke('vault:selectFileToSave'),
 

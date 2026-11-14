@@ -10,6 +10,8 @@ export interface IElectronAPI {
   unlockVault: (password: string, filePath?: string) => Promise<{ success: boolean; data?: VaultData; error?: string; filePath?: string; isLegacyV1?: boolean }>;
   initVault: (password: string, filePath?: string, profile?: 'standard' | 'strong' | 'maximum') => Promise<{ success: boolean; data?: VaultData; error?: string; filePath?: string }>;
   saveVault: (data: VaultData, filePath?: string, password?: string, profile?: 'standard' | 'strong' | 'maximum') => Promise<{ success: boolean; error?: string }>;
+  getRawVault: (filePath?: string) => Promise<string | null>;
+  saveRawVault: (rawJson: string, filePath?: string) => Promise<{ success: boolean; error?: string }>;
   selectFileToOpen: () => Promise<string | null>;
   selectFileToSave: () => Promise<string | null>;
   readKeyFile: () => Promise<{ name: string; content: string } | null>;
