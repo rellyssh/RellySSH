@@ -4,10 +4,18 @@
   "description": "Modern, lightweight, free & open-source cross-platform SSH client with encrypted zero-knowledge vault",
   "main": "dist-electron/main.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "pack": "electron-builder --dir",
+    "rebuild:node": "npm rebuild",
+    "rebuild:electron": "electron-builder install-app-deps",
+    "dist": "npm run build && electron-builder",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac"
   },
   "keywords": [
     "ssh",
@@ -45,9 +53,11 @@
     "@types/ssh2": "^1.15.6",
     "@vitejs/plugin-react": "^4.7.0",
     "electron": "^41.7.1",
+    "electron-builder": "^26.18.0",
     "typescript": "^7.0.2",
     "vite": "^6.4.6",
     "vite-plugin-electron": "^1.2.0",
-    "vite-plugin-electron-renderer": "^1.0.0"
+    "vite-plugin-electron-renderer": "^1.0.0",
+    "vitest": "^4.1.12"
   }
 }

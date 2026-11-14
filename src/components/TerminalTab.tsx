@@ -11,12 +11,24 @@ interface Props {
   server?: SSHServer;
   sshKey?: SSHKey;
   isLocal?: boolean;
+  isActive?: boolean;
   onClose: () => void;
 }
 
-export const TerminalTab: React.FC<Props> = ({ sessionId, server, sshKey, isLocal, onClose }) => {
+export const TerminalTab: React.FC<Props> = ({ sessionId, server, sshKey, isLocal, isActive = true, onClose }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalInstanceRef = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
+
+  useEffect(() => {
+    if (isActive && terminalInstanceRef.current) {
+      setTimeout(() => {
+        try {
+          terminalInstanceRef.current?.fit.fit();
+          terminalInstanceRef.current?.term.focus();
+        } catch (_) {}
+      }, 50);
+    }
+  }, [isActive]);
 
   useEffect(() => {
     if (!containerRef.current) return;

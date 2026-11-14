@@ -11,7 +11,8 @@ import {
   ScrollArea,
   Tooltip,
   DropdownMenu,
-  Separator
+  Separator,
+  TextField
 } from '@radix-ui/themes';
 import {
   Server,
@@ -21,12 +22,15 @@ import {
   Trash2,
   Lock,
   Download,
-  FolderOpen,
   Edit2,
   MoreVertical,
   Layers,
   Shield,
-  ExternalLink
+  ExternalLink,
+  Copy,
+  X,
+  Search,
+  CheckCircle2
 } from 'lucide-react';
 import type { VaultData, SSHServer, SSHKey } from './types';
 import { UnlockScreen } from './components/UnlockScreen';
@@ -47,15 +51,24 @@ export default function App() {
   const [currentPath, setCurrentPath] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'servers' | 'keys'>('servers');
   const [showMigrationBanner, setShowMigrationBanner] = useState<boolean>(false);
+  const [serverSearch, setServerSearch] = useState<string>('');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Modals
   const [isServerModalOpen, setIsServerModalOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<SSHServer | null>(null);
   const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
 
-  // Active SSH terminal sessions
+  // Active SSH & local terminal sessions
   const [sessions, setSessions] = useState<OpenSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 3500);
+  };
 
   const handleUnlock = (data: VaultData, path: string, isLegacyV1?: boolean) => {
     setVault(data);
@@ -63,6 +76,7 @@ export default function App() {
     if (isLegacyV1) {
       setShowMigrationBanner(true);
     }
+    showToast('Bóveda descifrada correctamente.');
   };
 
   const handleMigrateToV2 = async () => {
@@ -70,9 +84,9 @@ export default function App() {
     try {
       await window.electronAPI.saveVault(vault, currentPath || undefined, undefined, 'strong');
       setShowMigrationBanner(false);
-      alert('¡Bóveda migrada con éxito al formato V2 (Argon2id + AES-256-GCM + DEK)!');
+      showToast('¡Bóveda migrada con éxito al formato V2 (Argon2id + AES-256-GCM + DEK)!');
     } catch (err: any) {
-      alert(`Error en la migración: ${err.message}`);
+      showToast(`Error en la migración: ${err.message}`);
     }
   };
 
@@ -81,6 +95,7 @@ export default function App() {
     setCurrentPath('');
     setSessions([]);
     setActiveSessionId(null);
+    showToast('Bóveda bloqueada.');
   };
 
   const persistVault = async (updated: VaultData) => {
@@ -94,29 +109,49 @@ export default function App() {
     let updatedServers: SSHServer[];
     if (exists) {
       updatedServers = vault.servers.map((s) => (s.id === server.id ? server : s));
+      showToast(`Servidor "${server.name}" actualizado.`);
     } else {
       updatedServers = [...vault.servers, server];
+      showToast(`Servidor "${server.name}" guardado.`);
     }
     await persistVault({ ...vault, servers: updatedServers });
     setEditingServer(null);
   };
 
+  const handleDuplicateServer = async (server: SSHServer) => {
+    if (!vault) return;
+    const duplicated: SSHServer = {
+      ...server,
+      id: crypto.randomUUID(),
+      name: `${server.name} (Copia)`,
+      createdAt: new Date().toISOString()
+    };
+    const updatedServers = [...vault.servers, duplicated];
+    await persistVault({ ...vault, servers: updatedServers });
+    showToast(`Servidor "${server.name}" duplicado.`);
+  };
+
   const handleDeleteServer = async (id: string) => {
     if (!vault) return;
+    const server = vault.servers.find((s) => s.id === id);
     const updatedServers = vault.servers.filter((s) => s.id !== id);
     await persistVault({ ...vault, servers: updatedServers });
+    showToast(`Servidor "${server?.name || id}" eliminado.`);
   };
 
   const handleSaveKey = async (key: SSHKey) => {
     if (!vault) return;
     const updatedKeys = [...vault.keys, key];
     await persistVault({ ...vault, keys: updatedKeys });
+    showToast(`Clave SSH "${key.name}" guardada en la bóveda.`);
   };
 
   const handleDeleteKey = async (id: string) => {
     if (!vault) return;
+    const key = vault.keys.find((k) => k.id === id);
     const updatedKeys = vault.keys.filter((k) => k.id !== id);
     await persistVault({ ...vault, keys: updatedKeys });
+    showToast(`Clave SSH "${key?.name || id}" eliminada.`);
   };
 
   const handleConnect = (server: SSHServer) => {
@@ -127,7 +162,7 @@ export default function App() {
 
   const handleOpenLocalTerminal = () => {
     const sessionId = crypto.randomUUID();
-    setSessions((prev) => [...prev, { sessionId, name: 'Terminal Local', isLocal: true }]);
+    setSessions((prev) => [...prev, { sessionId, name: `Local #${prev.filter((p) => p.isLocal).length + 1}`, isLocal: true }]);
     setActiveSessionId(sessionId);
   };
 
@@ -146,7 +181,7 @@ export default function App() {
     const target = await window.electronAPI.selectFileToSave();
     if (target) {
       await window.electronAPI.saveVault(vault, target);
-      alert(`Bóveda exportada exitosamente a: ${target}`);
+      showToast(`Bóveda exportada exitosamente.`);
     }
   };
 
@@ -155,14 +190,20 @@ export default function App() {
     return <UnlockScreen onUnlock={handleUnlock} />;
   }
 
-  // Active session object
-  const currentSession = sessions.find((s) => s.sessionId === activeSessionId);
-  const currentSessionKey = currentSession?.server?.keyId
-    ? vault.keys.find((k) => k.id === currentSession.server?.keyId)
-    : undefined;
+  // Filtered servers
+  const filteredServers = vault.servers.filter((s) => {
+    if (!serverSearch.trim()) return true;
+    const q = serverSearch.toLowerCase();
+    return (
+      s.name.toLowerCase().includes(q) ||
+      s.host.toLowerCase().includes(q) ||
+      s.username.toLowerCase().includes(q) ||
+      (s.group && s.group.toLowerCase().includes(q))
+    );
+  });
 
   // Group servers
-  const serverGroups = vault.servers.reduce((acc, server) => {
+  const serverGroups = filteredServers.reduce((acc, server) => {
     const g = server.group || 'General';
     if (!acc[g]) acc[g] = [];
     acc[g].push(server);
@@ -171,6 +212,31 @@ export default function App() {
 
   return (
     <Flex style={{ height: '100vh', width: '100vw', background: 'var(--color-background)', overflow: 'hidden' }}>
+      {/* Toast Alert */}
+      {toastMessage && (
+        <Box
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            right: 24,
+            zIndex: 9999,
+            background: 'var(--iris-9)',
+            color: 'white',
+            padding: '10px 18px',
+            borderRadius: 8,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 13,
+            fontWeight: 500
+          }}
+        >
+          <CheckCircle2 size={16} />
+          <span>{toastMessage}</span>
+        </Box>
+      )}
+
       {/* Sidebar */}
       <Flex
         direction="column"
@@ -242,7 +308,7 @@ export default function App() {
 
         <Separator size="4" my="1" />
 
-        {/* Running SSH Sessions List */}
+        {/* Running Sessions List in Sidebar */}
         <Flex direction="column" style={{ flex: 1, minHeight: 0 }} px="2">
           <Box px="2" mb="1">
             <Text size="1" weight="bold" color="gray">
@@ -302,7 +368,7 @@ export default function App() {
                 Bóveda Cifrada
               </Text>
               <Badge color="green" size="1">
-                AES-256
+                Argon2id + AES
               </Badge>
             </Flex>
             <Text size="1" color="gray" truncate title={currentPath}>
@@ -346,18 +412,125 @@ export default function App() {
             </Flex>
           </Flex>
         )}
-        {/* If there is an active session selected, show terminal */}
-        {activeSessionId && currentSession ? (
-          <TerminalTab
-            key={activeSessionId}
-            sessionId={activeSessionId}
-            server={currentSession.server}
-            sshKey={currentSessionKey}
-            isLocal={currentSession.isLocal}
-            onClose={() => handleCloseSession(activeSessionId)}
-          />
-        ) : activeTab === 'servers' ? (
-          /* SERVERS VIEW */
+
+        {/* Top Horizontal Tab Bar for Active Sessions */}
+        {sessions.length > 0 && (
+          <Flex
+            align="center"
+            style={{
+              background: 'var(--gray-3)',
+              borderBottom: '1px solid var(--gray-5)',
+              overflowX: 'auto',
+              minHeight: 40,
+              paddingLeft: 8,
+              paddingRight: 8,
+              gap: 4
+            }}
+          >
+            {sessions.map((s) => {
+              const isActive = activeSessionId === s.sessionId;
+              return (
+                <Flex
+                  key={s.sessionId}
+                  align="center"
+                  gap="2"
+                  px="3"
+                  py="1"
+                  style={{
+                    cursor: 'pointer',
+                    borderRadius: '6px 6px 0 0',
+                    background: isActive ? '#0d1117' : 'var(--gray-4)',
+                    borderBottom: isActive ? '2px solid var(--iris-9)' : '2px solid transparent',
+                    color: isActive ? 'white' : 'var(--gray-11)',
+                    transition: 'all 0.15s ease',
+                    maxWidth: 220
+                  }}
+                  onClick={() => setActiveSessionId(s.sessionId)}
+                >
+                  {s.isLocal ? (
+                    <Terminal size={14} color="var(--blue-9)" />
+                  ) : (
+                    <Server size={14} color="var(--iris-9)" />
+                  )}
+                  <Text size="2" weight={isActive ? 'bold' : 'regular'} truncate style={{ maxWidth: 140 }}>
+                    {s.name}
+                  </Text>
+                  <IconButton
+                    size="1"
+                    variant="ghost"
+                    color="gray"
+                    style={{ width: 18, height: 18, borderRadius: 9 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCloseSession(s.sessionId);
+                    }}
+                    title="Cerrar pestaña"
+                  >
+                    <X size={12} />
+                  </IconButton>
+                </Flex>
+              );
+            })}
+
+            {/* Quick action to open new tab */}
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger>
+                <IconButton size="1" variant="soft" color="gray" title="Abrir nueva pestaña">
+                  <Plus size={14} />
+                </IconButton>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Content>
+                <DropdownMenu.Item onClick={handleOpenLocalTerminal}>
+                  <Terminal size={14} style={{ marginRight: 6 }} /> Terminal Local
+                </DropdownMenu.Item>
+                {vault.servers.length > 0 && <DropdownMenu.Separator />}
+                {vault.servers.map((srv) => (
+                  <DropdownMenu.Item key={srv.id} onClick={() => handleConnect(srv)}>
+                    <Server size={14} style={{ marginRight: 6 }} /> Conectar a {srv.name}
+                  </DropdownMenu.Item>
+                ))}
+              </DropdownMenu.Content>
+            </DropdownMenu.Root>
+          </Flex>
+        )}
+
+        {/* Multi-Session Terminal Area (Persistent in DOM so connections are not destroyed) */}
+        <Box
+          style={{
+            flex: 1,
+            minHeight: 0,
+            width: '100%',
+            display: activeSessionId ? 'flex' : 'none'
+          }}
+        >
+          {sessions.map((s) => {
+            const sKey = s.server?.keyId ? vault.keys.find((k) => k.id === s.server?.keyId) : undefined;
+            const isVisible = activeSessionId === s.sessionId;
+            return (
+              <Box
+                key={s.sessionId}
+                style={{
+                  display: isVisible ? 'flex' : 'none',
+                  flex: 1,
+                  height: '100%',
+                  width: '100%'
+                }}
+              >
+                <TerminalTab
+                  sessionId={s.sessionId}
+                  server={s.server}
+                  sshKey={sKey}
+                  isLocal={s.isLocal}
+                  isActive={isVisible}
+                  onClose={() => handleCloseSession(s.sessionId)}
+                />
+              </Box>
+            );
+          })}
+        </Box>
+
+        {/* SERVERS VIEW (Rendered when no session is active and activeTab is servers) */}
+        {!activeSessionId && activeTab === 'servers' && (
           <Flex direction="column" style={{ flex: 1, minHeight: 0 }}>
             <Flex align="center" justify="between" px="5" py="4" style={{ borderBottom: '1px solid var(--gray-4)' }}>
               <Flex direction="column">
@@ -378,25 +551,46 @@ export default function App() {
               </Button>
             </Flex>
 
+            {/* Search Filter Bar */}
+            <Flex gap="3" align="center" px="5" py="2" style={{ borderBottom: '1px solid var(--gray-4)', background: 'var(--gray-2)' }}>
+              <Box style={{ flex: 1, maxWidth: 360 }}>
+                <TextField.Root
+                  placeholder="Buscar servidor por nombre, host, usuario o grupo..."
+                  value={serverSearch}
+                  onChange={(e) => setServerSearch(e.target.value)}
+                  size="2"
+                >
+                  <TextField.Slot>
+                    <Search size={14} color="var(--gray-9)" />
+                  </TextField.Slot>
+                </TextField.Root>
+              </Box>
+              <Text size="1" color="gray">
+                {filteredServers.length} {filteredServers.length === 1 ? 'servidor' : 'servidores'}
+              </Text>
+            </Flex>
+
             <ScrollArea style={{ flex: 1, padding: 24 }}>
               {Object.keys(serverGroups).length === 0 ? (
                 <Flex direction="column" align="center" justify="center" style={{ height: 300 }} gap="3">
                   <Server size={48} color="var(--gray-8)" />
                   <Heading size="3" color="gray">
-                    No tienes servidores registrados
+                    {serverSearch ? 'No se encontraron servidores coincidentes' : 'No tienes servidores registrados'}
                   </Heading>
                   <Text size="2" color="gray">
-                    Agrega tu primer servidor SSH haciendo clic en "Nuevo Servidor".
+                    {serverSearch ? 'Intenta buscar con otros términos.' : 'Agrega tu primer servidor SSH haciendo clic en "Nuevo Servidor".'}
                   </Text>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setEditingServer(null);
-                      setIsServerModalOpen(true);
-                    }}
-                  >
-                    <Plus size={14} style={{ marginRight: 4 }} /> Agregar Servidor
-                  </Button>
+                  {!serverSearch && (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setEditingServer(null);
+                        setIsServerModalOpen(true);
+                      }}
+                    >
+                      <Plus size={14} style={{ marginRight: 4 }} /> Agregar Servidor
+                    </Button>
+                  )}
                 </Flex>
               ) : (
                 Object.entries(serverGroups).map(([groupName, groupServers]) => (
@@ -446,6 +640,9 @@ export default function App() {
                                   >
                                     <Edit2 size={14} style={{ marginRight: 6 }} /> Editar
                                   </DropdownMenu.Item>
+                                  <DropdownMenu.Item onClick={() => handleDuplicateServer(s)}>
+                                    <Copy size={14} style={{ marginRight: 6 }} /> Duplicar
+                                  </DropdownMenu.Item>
                                   <DropdownMenu.Separator />
                                   <DropdownMenu.Item color="red" onClick={() => handleDeleteServer(s.id)}>
                                     <Trash2 size={14} style={{ marginRight: 6 }} /> Eliminar
@@ -472,8 +669,10 @@ export default function App() {
               )}
             </ScrollArea>
           </Flex>
-        ) : (
-          /* KEYS VIEW */
+        )}
+
+        {/* KEYS VIEW (Rendered when no session is active and activeTab is keys) */}
+        {!activeSessionId && activeTab === 'keys' && (
           <Flex direction="column" style={{ flex: 1, minHeight: 0 }}>
             <Flex align="center" justify="between" px="5" py="4" style={{ borderBottom: '1px solid var(--gray-4)' }}>
               <Flex direction="column">
@@ -550,7 +749,7 @@ export default function App() {
                             variant="soft"
                             onClick={() => {
                               navigator.clipboard.writeText(k.publicKey || k.privateKey);
-                              alert('Copiado al portapapeles');
+                              showToast('Clave copiada al portapapeles.');
                             }}
                           >
                             Copiar

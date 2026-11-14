@@ -9,6 +9,7 @@ lerna-debug.log*
 # Production build outputs
 dist/
 dist-electron/
+dist-release/
 release/
 build/
 out/

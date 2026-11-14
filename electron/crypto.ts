@@ -126,6 +126,10 @@ export async function encryptVaultV2(
   ciphertext += payloadCipher.final('hex');
   const payloadAuthTag = payloadCipher.getAuthTag();
 
+  // Securely zero out ephemeral raw key buffers from RAM
+  kek.fill(0);
+  dek.fill(0);
+
   return {
     format: 'RELLY_VAULT',
     version: 2,
@@ -178,6 +182,10 @@ export async function decryptAnyVault<T = unknown>(
     let decrypted = payloadDecipher.update(payload.payload.ciphertext, 'hex', 'utf8');
     decrypted += payloadDecipher.final('utf8');
 
+    // Securely zero out ephemeral raw key buffers from RAM
+    kek.fill(0);
+    dek.fill(0);
+
     return { data: JSON.parse(decrypted) as T, isLegacyV1: false };
   }
 
@@ -193,10 +201,73 @@ export async function decryptAnyVault<T = unknown>(
     let decrypted = decipher.update(payload.data, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
 
+    // Wipe legacy key buffer
+    key.fill(0);
+
     return { data: JSON.parse(decrypted) as T, isLegacyV1: true };
   }
 
   throw new Error('Formato de bóveda desconocido o archivo no compatible.');
+}
+
+/**
+ * Rotates the master password without re-encrypting the underlying payload.
+ * Only the random DEK is re-wrapped with a newly derived KEK.
+ */
+export async function rotateMasterPassword(
+  payload: EncryptedPayloadV2,
+  oldPassword: string,
+  newPassword: string,
+  newProfile?: SecurityProfile
+): Promise<EncryptedPayloadV2> {
+  if (payload.format !== 'RELLY_VAULT' || payload.version !== 2) {
+    throw new Error('Solo se permite rotación de contraseña en bóvedas V2.');
+  }
+
+  // 1. Unwrap DEK using old password
+  const oldSalt = Buffer.from(payload.kdf.salt, 'hex');
+  const oldKek = await deriveKEK(oldPassword, oldSalt, payload.kdf.params);
+
+  const dekIv = Buffer.from(payload.dek.iv, 'hex');
+  const dekAuthTag = Buffer.from(payload.dek.authTag, 'hex');
+  const dekDecipher = crypto.createDecipheriv('aes-256-gcm', oldKek, dekIv);
+  dekDecipher.setAuthTag(dekAuthTag);
+  let unwrappedHex = dekDecipher.update(payload.dek.wrapped, 'hex', 'utf8');
+  unwrappedHex += dekDecipher.final('utf8');
+  const dek = Buffer.from(unwrappedHex, 'hex');
+
+  // 2. Setup new KEK derivation parameters
+  const targetProfile = newProfile || 'strong';
+  const newParams = SECURITY_PROFILES[targetProfile] || SECURITY_PROFILES.strong;
+  const newSalt = crypto.randomBytes(16);
+  const newKek = await deriveKEK(newPassword, newSalt, newParams);
+
+  // 3. Re-wrap DEK with new KEK
+  const newDekIv = crypto.randomBytes(12);
+  const newDekCipher = crypto.createCipheriv('aes-256-gcm', newKek, newDekIv);
+  let newWrappedDek = newDekCipher.update(dek.toString('hex'), 'utf8', 'hex');
+  newWrappedDek += newDekCipher.final('hex');
+  const newDekAuthTag = newDekCipher.getAuthTag();
+
+  // Wipe intermediate sensitive buffers
+  oldKek.fill(0);
+  newKek.fill(0);
+  dek.fill(0);
+
+  return {
+    ...payload,
+    kdf: {
+      algorithm: 'Argon2id',
+      params: newParams,
+      salt: newSalt.toString('hex')
+    },
+    dek: {
+      algorithm: 'AES-256-GCM',
+      iv: newDekIv.toString('hex'),
+      authTag: newDekAuthTag.toString('hex'),
+      wrapped: newWrappedDek
+    }
+  };
 }
 
 /**
