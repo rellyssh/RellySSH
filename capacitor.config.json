@@ -1,0 +1,8 @@
+{
+  "appId": "io.github.rellyssh",
+  "appName": "RellySSH",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}

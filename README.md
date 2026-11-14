@@ -59,7 +59,39 @@ Are you fed up with the current state of SSH clients? So were we.
 - 🛡️ **Tunable Security Profiles**:
   - Choose between **Standard** (2s calibration), **Strong** (5s), and **Maximum Brute-Force Resistance** (10s target derivational complexity).
 - 🌐 **True Cross-Platform**:
-  - Runs natively on **Linux**, **macOS**, and **Windows**.
+  - Runs natively on **Linux**, **macOS**, **Windows**, and **Android**.
+
+---
+
+### 🍏 Note for macOS Users (Gatekeeper / "App damaged" warning)
+
+Because RellySSH is independent, open-source software and is not signed with a proprietary paid Apple Developer ID certificate, macOS Gatekeeper may display a dialog claiming:
+> *"RellySSH está dañado y no se puede abrir. Deberías trasladarlo a la papelera."*
+
+This is a **false positive** caused by macOS quarantine flags on downloaded binaries. To open the app:
+1. Open your Terminal.
+2. Run this single command to remove the quarantine attribute:
+   ```bash
+   xattr -cr /Applications/RellySSH.app
+   ```
+   *(Or if running directly from your Downloads folder: `xattr -cr ~/Downloads/RellySSH.app`)*
+3. Launch RellySSH normally!
+
+---
+
+### 📱 Android Version (Mobile)
+
+RellySSH includes full support for Android via **Capacitor**:
+```bash
+# Build web bundle and sync assets to Android project
+npm run build
+npx cap sync android
+
+# Build the Android APK using Gradle
+cd android
+./gradlew assembleDebug
+```
+The compiled APK will be located at `android/app/build/outputs/apk/debug/app-debug.apk`. Alternatively, download the pre-compiled `.apk` from our [GitHub Releases](https://github.com/rellyssh/RellySSH/releases).
 
 ---
 

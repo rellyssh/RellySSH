@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import '@radix-ui/themes/styles.css';
 import '@xterm/xterm/css/xterm.css';
 import { Theme } from '@radix-ui/themes';
+import './services/mobileBridge';
 import App from './App';
 import './index.css';
 
