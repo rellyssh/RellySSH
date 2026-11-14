@@ -31,7 +31,7 @@
     "type": "git",
     "url": "https://github.com/rellyssh/RellySSH.git"
   },
-  "homepage": "https://github.com/rellyssh/RellySSH#readme",
+  "homepage": "https://rellyssh.github.io/RellySSH/",
   "dependencies": {
     "@capacitor/core": "^8.6.2",
     "@noble/hashes": "^2.4.0",

@@ -7,6 +7,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/rellyssh/RellySSH?style=flat-square&color=yellow)](https://github.com/rellyssh/RellySSH/stargazers)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Ready-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Website](https://img.shields.io/badge/Website-rellyssh.github.io-21d4f5?style=flat-square&logo=google-chrome&logoColor=white)](https://rellyssh.github.io/RellySSH/)
 [![Electron](https://img.shields.io/badge/Electron-Desktop-47848F?style=flat-square&logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Support on Cafecito](https://img.shields.io/badge/Support%20on-Cafecito-orange?style=flat-square&logo=coffeescript)](https://cafecito.app/rellyssh)
 
@@ -15,6 +16,7 @@
   RellySSH combines lightning-fast local and remote terminal management with military-grade, portable <code>.vault</code> encryption.
 </p>
 
+[**🌐 Official Website**](https://rellyssh.github.io/RellySSH/) •
 [**Features**](#-features) •
 [**Why Not Termius or XPipe?**](#-why-rellyssh-over-the-alternatives) •
 [**Security Architecture**](#-vault-security--zero-knowledge) •
