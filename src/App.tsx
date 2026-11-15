@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Flex,
   Box,
@@ -31,7 +31,12 @@ import {
   X,
   Search,
   CheckCircle2,
-  Cloud
+  Cloud,
+  Check,
+  FolderGit2,
+  Sparkles,
+  RefreshCw,
+  LayoutGrid
 } from 'lucide-react';
 import { GitHubLogoIcon } from '@radix-ui/react-icons';
 import type { VaultData, SSHServer, SSHKey } from './types';
@@ -56,6 +61,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'servers' | 'keys'>('servers');
   const [showMigrationBanner, setShowMigrationBanner] = useState<boolean>(false);
   const [serverSearch, setServerSearch] = useState<string>('');
+  const [selectedGroup, setSelectedGroup] = useState<string>('ALL');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Modals
@@ -68,11 +74,13 @@ export default function App() {
   const [sessions, setSessions] = useState<OpenSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   const showToast = (message: string) => {
     setToastMessage(message);
     setTimeout(() => {
-      setToastMessage(null);
-    }, 3500);
+      setToastMessage((prev) => (prev === message ? null : prev));
+    }, 3200);
   };
 
   const handleUnlock = (data: VaultData, path: string, isLegacyV1?: boolean) => {
@@ -100,26 +108,28 @@ export default function App() {
     setCurrentPath('');
     setSessions([]);
     setActiveSessionId(null);
-    showToast('Bóveda bloqueada.');
+    showToast('Bóveda bloqueada con éxito.');
   };
 
   const persistVault = async (updated: VaultData) => {
     setVault(updated);
     await window.electronAPI.saveVault(updated, currentPath || undefined);
 
-    // Auto-sync to GitHub if configured
+    // Auto-sync con GitHub si está configurado
     const ghConfig = getGitHubConfig();
     if (ghConfig?.autoSync && ghConfig.token) {
       try {
         const raw = await window.electronAPI.getRawVault(currentPath || undefined);
         if (raw) {
-          const res = await pushVaultToGitHub(ghConfig.token, raw, ghConfig.gistId);
+          const res = await pushVaultToGitHub(ghConfig, raw);
           if (res.success) {
             saveGitHubConfig({
               ...ghConfig,
-              gistId: res.gistId,
+              repoUrl: res.repoUrl || ghConfig.repoUrl,
+              lastCommitSha: res.commitSha || ghConfig.lastCommitSha,
+              gistId: res.gistId || ghConfig.gistId,
               gistUrl: res.gistUrl || ghConfig.gistUrl,
-              lastSyncTime: res.updatedAt,
+              lastSyncTime: res.updatedAt || new Date().toISOString(),
               lastSyncAction: 'push'
             });
           }
@@ -189,7 +199,8 @@ export default function App() {
 
   const handleOpenLocalTerminal = () => {
     const sessionId = crypto.randomUUID();
-    setSessions((prev) => [...prev, { sessionId, name: `Local #${prev.filter((p) => p.isLocal).length + 1}`, isLocal: true }]);
+    const count = sessions.filter((p) => p.isLocal).length + 1;
+    setSessions((prev) => [...prev, { sessionId, name: `Local #${count}`, isLocal: true }]);
     setActiveSessionId(sessionId);
   };
 
@@ -212,24 +223,103 @@ export default function App() {
     }
   };
 
-  // If vault is locked, show unlock/create screen
+  const handleCopySSHCommand = (s: SSHServer, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const cmd = `ssh ${s.username}@${s.host} -p ${s.port}`;
+    navigator.clipboard.writeText(cmd).catch(() => {});
+    showToast(`Comando copiado: ${cmd}`);
+  };
+
+  // Atajos de Teclado Globales (Productividad y Velocidad)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      const isCtrl = e.ctrlKey || e.metaKey;
+
+      // Ctrl+K -> Enfocar búsqueda
+      if (isCtrl && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setActiveTab('servers');
+        setActiveSessionId(null);
+        setTimeout(() => searchInputRef.current?.focus(), 50);
+        return;
+      }
+
+      // Ctrl+T -> Nueva terminal local
+      if (isCtrl && e.key.toLowerCase() === 't') {
+        e.preventDefault();
+        handleOpenLocalTerminal();
+        return;
+      }
+
+      // Ctrl+N -> Nuevo servidor
+      if (isCtrl && e.key.toLowerCase() === 'n' && !isInput) {
+        e.preventDefault();
+        setEditingServer(null);
+        setIsServerModalOpen(true);
+        return;
+      }
+
+      // Ctrl+W -> Cerrar pestaña activa
+      if (isCtrl && e.key.toLowerCase() === 'w') {
+        if (activeSessionId) {
+          e.preventDefault();
+          handleCloseSession(activeSessionId);
+        }
+        return;
+      }
+
+      // Ctrl+L -> Bloquear bóveda
+      if (isCtrl && e.key.toLowerCase() === 'l' && !isInput) {
+        e.preventDefault();
+        handleLock();
+        return;
+      }
+
+      // Escape -> Limpiar búsqueda o volver al panel de servidores
+      if (e.key === 'Escape') {
+        if (serverSearch) {
+          setServerSearch('');
+        } else if (activeSessionId) {
+          setActiveSessionId(null);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeSessionId, serverSearch, sessions]);
+
+  // Si la bóveda está bloqueada, renderizar pantalla de bienvenida y desbloqueo
   if (!vault) {
     return <UnlockScreen onUnlock={handleUnlock} />;
   }
 
-  // Filtered servers
+  // Grupos únicos disponibles
+  const availableGroups = Array.from(
+    new Set(vault.servers.map((s) => s.group || 'General'))
+  ).sort();
+
+  // Filtrado reactivo de servidores
   const filteredServers = vault.servers.filter((s) => {
+    // Filtro por grupo
+    if (selectedGroup !== 'ALL' && (s.group || 'General') !== selectedGroup) {
+      return false;
+    }
+    // Filtro por búsqueda de texto
     if (!serverSearch.trim()) return true;
     const q = serverSearch.toLowerCase();
     return (
       s.name.toLowerCase().includes(q) ||
       s.host.toLowerCase().includes(q) ||
       s.username.toLowerCase().includes(q) ||
-      (s.group && s.group.toLowerCase().includes(q))
+      (s.group && s.group.toLowerCase().includes(q)) ||
+      String(s.port).includes(q)
     );
   });
 
-  // Group servers
+  // Agrupamiento de servidores filtrados
   const serverGroups = filteredServers.reduce((acc, server) => {
     const g = server.group || 'General';
     if (!acc[g]) acc[g] = [];
@@ -239,7 +329,7 @@ export default function App() {
 
   return (
     <Flex style={{ height: '100vh', width: '100vw', background: 'var(--color-background)', overflow: 'hidden' }}>
-      {/* Toast Alert */}
+      {/* Toast Flotante estilizado */}
       {toastMessage && (
         <Box
           style={{
@@ -247,24 +337,35 @@ export default function App() {
             bottom: 24,
             right: 24,
             zIndex: 9999,
-            background: 'var(--iris-9)',
+            background: 'linear-gradient(135deg, #102d62, #087bff)',
             color: 'white',
             padding: '10px 18px',
-            borderRadius: 8,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+            borderRadius: 10,
+            boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
             display: 'flex',
             alignItems: 'center',
-            gap: 8,
+            gap: 10,
             fontSize: 13,
-            fontWeight: 500
+            fontWeight: 500,
+            border: '1px solid rgba(255,255,255,0.15)',
+            animation: 'fadeIn 0.2s ease-out'
           }}
         >
-          <CheckCircle2 size={16} />
+          <CheckCircle2 size={16} color="#21d4f5" />
           <span>{toastMessage}</span>
+          <IconButton
+            size="1"
+            variant="ghost"
+            color="gray"
+            style={{ color: 'white', width: 18, height: 18, marginLeft: 6 }}
+            onClick={() => setToastMessage(null)}
+          >
+            <X size={12} />
+          </IconButton>
         </Box>
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar Lateral */}
       <Flex
         direction="column"
         style={{
@@ -274,7 +375,7 @@ export default function App() {
           flexShrink: 0
         }}
       >
-        {/* App Titlebar region */}
+        {/* Encabezado del Sidebar */}
         <Flex align="center" justify="between" px="3" py="3" className="titlebar-drag-region" style={{ borderBottom: '1px solid var(--gray-4)' }}>
           <Flex align="center" gap="2">
             <Box style={{ width: 26, height: 26, filter: 'drop-shadow(0 0 6px rgba(33, 212, 245, 0.5))' }}>
@@ -285,14 +386,14 @@ export default function App() {
             </Heading>
           </Flex>
 
-          <Tooltip content="Bloquear Bóveda">
+          <Tooltip content="Bloquear Bóveda (Ctrl+L)">
             <IconButton size="1" variant="ghost" color="gray" onClick={handleLock} className="no-drag">
               <Lock size={15} />
             </IconButton>
           </Tooltip>
         </Flex>
 
-        {/* Sidebar Nav buttons */}
+        {/* Botones de Navegación del Sidebar */}
         <Box p="2">
           <Flex direction="column" gap="1">
             <Button
@@ -326,6 +427,7 @@ export default function App() {
               color="blue"
               style={{ justifyContent: 'flex-start', cursor: 'pointer', marginTop: 4 }}
               onClick={handleOpenLocalTerminal}
+              title="Atajo: Ctrl+T"
             >
               <Terminal size={16} style={{ marginRight: 8 }} />
               Nueva Terminal Local
@@ -335,7 +437,7 @@ export default function App() {
 
         <Separator size="4" my="1" />
 
-        {/* Running Sessions List in Sidebar */}
+        {/* Lista de Sesiones Activas en Sidebar */}
         <Flex direction="column" style={{ flex: 1, minHeight: 0 }} px="2">
           <Box px="2" mb="1">
             <Text size="1" weight="bold" color="gray">
@@ -370,6 +472,7 @@ export default function App() {
                         e.stopPropagation();
                         handleCloseSession(s.sessionId);
                       }}
+                      title="Cerrar sesión"
                     >
                       <Trash2 size={12} />
                     </IconButton>
@@ -387,7 +490,7 @@ export default function App() {
           </ScrollArea>
         </Flex>
 
-        {/* Vault info bottom bar */}
+        {/* Barra inferior de estado y sincronización */}
         <Box p="3" style={{ borderTop: '1px solid var(--gray-4)', background: 'var(--gray-3)' }}>
           <Flex direction="column" gap="1">
             <Flex align="center" justify="between">
@@ -413,7 +516,7 @@ export default function App() {
         </Box>
       </Flex>
 
-      {/* Main Content Area */}
+      {/* Área de Contenido Principal */}
       <Flex direction="column" style={{ flex: 1, minWidth: 0, height: '100%' }}>
         {showMigrationBanner && (
           <Flex
@@ -443,88 +546,97 @@ export default function App() {
           </Flex>
         )}
 
-        {/* Top Horizontal Tab Bar for Active Sessions */}
-        {sessions.length > 0 && (
-          <Flex
-            align="center"
-            style={{
-              background: 'var(--gray-3)',
-              borderBottom: '1px solid var(--gray-5)',
-              overflowX: 'auto',
-              minHeight: 40,
-              paddingLeft: 8,
-              paddingRight: 8,
-              gap: 4
-            }}
+        {/* Barra Superior Horizontal de Pestañas */}
+        <Flex
+          align="center"
+          style={{
+            background: 'var(--gray-3)',
+            borderBottom: '1px solid var(--gray-5)',
+            overflowX: 'auto',
+            minHeight: 40,
+            paddingLeft: 8,
+            paddingRight: 8,
+            gap: 4
+          }}
+        >
+          {/* Botón rápido para volver al panel de servidores/claves */}
+          <Button
+            size="1"
+            variant={!activeSessionId ? 'solid' : 'ghost'}
+            color={!activeSessionId ? 'iris' : 'gray'}
+            onClick={() => setActiveSessionId(null)}
+            style={{ borderRadius: '6px 6px 0 0', cursor: 'pointer' }}
           >
-            {sessions.map((s) => {
-              const isActive = activeSessionId === s.sessionId;
-              return (
-                <Flex
-                  key={s.sessionId}
-                  align="center"
-                  gap="2"
-                  px="3"
-                  py="1"
-                  style={{
-                    cursor: 'pointer',
-                    borderRadius: '6px 6px 0 0',
-                    background: isActive ? '#0d1117' : 'var(--gray-4)',
-                    borderBottom: isActive ? '2px solid var(--iris-9)' : '2px solid transparent',
-                    color: isActive ? 'white' : 'var(--gray-11)',
-                    transition: 'all 0.15s ease',
-                    maxWidth: 220
+            <LayoutGrid size={13} style={{ marginRight: 4 }} /> Panel de Servidores
+          </Button>
+
+          {sessions.map((s) => {
+            const isActive = activeSessionId === s.sessionId;
+            return (
+              <Flex
+                key={s.sessionId}
+                align="center"
+                gap="2"
+                px="3"
+                py="1"
+                style={{
+                  cursor: 'pointer',
+                  borderRadius: '6px 6px 0 0',
+                  background: isActive ? '#0d1117' : 'var(--gray-4)',
+                  borderBottom: isActive ? '2px solid var(--iris-9)' : '2px solid transparent',
+                  color: isActive ? 'white' : 'var(--gray-11)',
+                  transition: 'all 0.15s ease',
+                  maxWidth: 220
+                }}
+                onClick={() => setActiveSessionId(s.sessionId)}
+              >
+                {s.isLocal ? (
+                  <Terminal size={14} color="var(--blue-9)" />
+                ) : (
+                  <Server size={14} color="var(--iris-9)" />
+                )}
+                <Text size="2" weight={isActive ? 'bold' : 'regular'} truncate style={{ maxWidth: 140 }}>
+                  {s.name}
+                </Text>
+                <IconButton
+                  size="1"
+                  variant="ghost"
+                  color="gray"
+                  style={{ width: 18, height: 18, borderRadius: 9 }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCloseSession(s.sessionId);
                   }}
-                  onClick={() => setActiveSessionId(s.sessionId)}
+                  title="Cerrar pestaña (Ctrl+W)"
                 >
-                  {s.isLocal ? (
-                    <Terminal size={14} color="var(--blue-9)" />
-                  ) : (
-                    <Server size={14} color="var(--iris-9)" />
-                  )}
-                  <Text size="2" weight={isActive ? 'bold' : 'regular'} truncate style={{ maxWidth: 140 }}>
-                    {s.name}
-                  </Text>
-                  <IconButton
-                    size="1"
-                    variant="ghost"
-                    color="gray"
-                    style={{ width: 18, height: 18, borderRadius: 9 }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCloseSession(s.sessionId);
-                    }}
-                    title="Cerrar pestaña"
-                  >
-                    <X size={12} />
-                  </IconButton>
-                </Flex>
-              );
-            })}
-
-            {/* Quick action to open new tab */}
-            <DropdownMenu.Root>
-              <DropdownMenu.Trigger>
-                <IconButton size="1" variant="soft" color="gray" title="Abrir nueva pestaña">
-                  <Plus size={14} />
+                  <X size={12} />
                 </IconButton>
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Content>
-                <DropdownMenu.Item onClick={handleOpenLocalTerminal}>
-                  <Terminal size={14} style={{ marginRight: 6 }} /> Terminal Local
-                </DropdownMenu.Item>
-                {vault.servers.length > 0 && <DropdownMenu.Separator />}
-                {vault.servers.map((srv) => (
-                  <DropdownMenu.Item key={srv.id} onClick={() => handleConnect(srv)}>
-                    <Server size={14} style={{ marginRight: 6 }} /> Conectar a {srv.name}
-                  </DropdownMenu.Item>
-                ))}
-              </DropdownMenu.Content>
-            </DropdownMenu.Root>
-          </Flex>
-        )}
+              </Flex>
+            );
+          })}
 
-        {/* Multi-Session Terminal Area (Persistent in DOM so connections are not destroyed) */}
+          {/* Menú '+' para abrir pestañas rápidas */}
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger>
+              <IconButton size="1" variant="soft" color="gray" title="Abrir nueva pestaña (Ctrl+T)">
+                <Plus size={14} />
+              </IconButton>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Content>
+              <DropdownMenu.Item onClick={handleOpenLocalTerminal}>
+                <Terminal size={14} style={{ marginRight: 6 }} /> Terminal Local (Ctrl+T)
+              </DropdownMenu.Item>
+              {vault.servers.length > 0 && <DropdownMenu.Separator />}
+              {vault.servers.map((srv) => (
+                <DropdownMenu.Item key={srv.id} onClick={() => handleConnect(srv)}>
+                  <Server size={14} style={{ marginRight: 6 }} /> Conectar a {srv.name}
+                </DropdownMenu.Item>
+              ))}
+            </DropdownMenu.Content>
+          </DropdownMenu.Root>
+        </Flex>
+
+        {/* Área de Terminales Persistentes (Mantiene conexiones vivas en DOM) */}
         <Box
           style={{
             flex: 1,
@@ -559,58 +671,118 @@ export default function App() {
           })}
         </Box>
 
-        {/* SERVERS VIEW (Rendered when no session is active and activeTab is servers) */}
+        {/* VISTA DE SERVIDORES */}
         {!activeSessionId && activeTab === 'servers' && (
           <Flex direction="column" style={{ flex: 1, minHeight: 0 }}>
+            {/* Header de Servidores */}
             <Flex align="center" justify="between" px="5" py="4" style={{ borderBottom: '1px solid var(--gray-4)' }}>
               <Flex direction="column">
                 <Heading size="5">Servidores SSH</Heading>
                 <Text size="2" color="gray">
-                  Administra tus conexiones remotas y credenciales protegidas
+                  Administra tus servidores remotos con máxima seguridad y conexión instantánea
                 </Text>
               </Flex>
-              <Button
-                size="2"
-                variant="solid"
-                onClick={() => {
-                  setEditingServer(null);
-                  setIsServerModalOpen(true);
-                }}
-              >
-                <Plus size={16} style={{ marginRight: 4 }} /> Nuevo Servidor
-              </Button>
-            </Flex>
-
-            {/* Search Filter Bar */}
-            <Flex gap="3" align="center" px="5" py="2" style={{ borderBottom: '1px solid var(--gray-4)', background: 'var(--gray-2)' }}>
-              <Box style={{ flex: 1, maxWidth: 360 }}>
-                <TextField.Root
-                  placeholder="Buscar servidor por nombre, host, usuario o grupo..."
-                  value={serverSearch}
-                  onChange={(e) => setServerSearch(e.target.value)}
+              <Flex gap="2">
+                <Button
                   size="2"
+                  variant="solid"
+                  onClick={() => {
+                    setEditingServer(null);
+                    setIsServerModalOpen(true);
+                  }}
+                  title="Atajo: Ctrl+N"
                 >
-                  <TextField.Slot>
-                    <Search size={14} color="var(--gray-9)" />
-                  </TextField.Slot>
-                </TextField.Root>
-              </Box>
-              <Text size="1" color="gray">
-                {filteredServers.length} {filteredServers.length === 1 ? 'servidor' : 'servidores'}
-              </Text>
+                  <Plus size={16} style={{ marginRight: 4 }} /> Nuevo Servidor
+                </Button>
+              </Flex>
             </Flex>
 
+            {/* Barra de Búsqueda y Filtros Rápidos */}
+            <Flex direction="column" px="5" py="3" gap="2" style={{ borderBottom: '1px solid var(--gray-4)', background: 'var(--gray-2)' }}>
+              <Flex gap="3" align="center">
+                <Box style={{ flex: 1, maxWidth: 420 }}>
+                  <TextField.Root
+                    ref={searchInputRef}
+                    placeholder="Buscar por nombre, host, usuario o puerto... (Ctrl+K)"
+                    value={serverSearch}
+                    onChange={(e) => setServerSearch(e.target.value)}
+                    size="2"
+                  >
+                    <TextField.Slot>
+                      <Search size={14} color="var(--gray-9)" />
+                    </TextField.Slot>
+                    {serverSearch && (
+                      <TextField.Slot>
+                        <IconButton size="1" variant="ghost" color="gray" onClick={() => setServerSearch('')}>
+                          <X size={12} />
+                        </IconButton>
+                      </TextField.Slot>
+                    )}
+                  </TextField.Root>
+                </Box>
+                <Text size="1" color="gray">
+                  {filteredServers.length} de {vault.servers.length} servidores
+                </Text>
+              </Flex>
+
+              {/* Píldoras de Filtro por Grupo */}
+              {availableGroups.length > 0 && (
+                <Flex gap="1" wrap="wrap" align="center">
+                  <Button
+                    size="1"
+                    variant={selectedGroup === 'ALL' ? 'solid' : 'soft'}
+                    color={selectedGroup === 'ALL' ? 'iris' : 'gray'}
+                    onClick={() => setSelectedGroup('ALL')}
+                    style={{ cursor: 'pointer', borderRadius: 14 }}
+                  >
+                    Todos ({vault.servers.length})
+                  </Button>
+                  {availableGroups.map((grp) => {
+                    const count = vault.servers.filter((s) => (s.group || 'General') === grp).length;
+                    const isSelected = selectedGroup === grp;
+                    return (
+                      <Button
+                        key={grp}
+                        size="1"
+                        variant={isSelected ? 'solid' : 'soft'}
+                        color={isSelected ? 'cyan' : 'gray'}
+                        onClick={() => setSelectedGroup(grp)}
+                        style={{ cursor: 'pointer', borderRadius: 14 }}
+                      >
+                        {grp} ({count})
+                      </Button>
+                    );
+                  })}
+                </Flex>
+              )}
+            </Flex>
+
+            {/* Cuadrícula de Servidores */}
             <ScrollArea style={{ flex: 1, padding: 24 }}>
               {Object.keys(serverGroups).length === 0 ? (
-                <Flex direction="column" align="center" justify="center" style={{ height: 300 }} gap="3">
+                <Flex direction="column" align="center" justify="center" style={{ height: 320 }} gap="3">
                   <Server size={48} color="var(--gray-8)" />
                   <Heading size="3" color="gray">
-                    {serverSearch ? 'No se encontraron servidores coincidentes' : 'No tienes servidores registrados'}
+                    {serverSearch || selectedGroup !== 'ALL'
+                      ? 'No se encontraron servidores coincidentes'
+                      : 'No tienes servidores registrados'}
                   </Heading>
                   <Text size="2" color="gray">
-                    {serverSearch ? 'Intenta buscar con otros términos.' : 'Agrega tu primer servidor SSH haciendo clic en "Nuevo Servidor".'}
+                    {serverSearch || selectedGroup !== 'ALL'
+                      ? 'Intenta restablecer los filtros de búsqueda.'
+                      : 'Agrega tu primer servidor SSH haciendo clic en "Nuevo Servidor".'}
                   </Text>
-                  {!serverSearch && (
+                  {serverSearch || selectedGroup !== 'ALL' ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setServerSearch('');
+                        setSelectedGroup('ALL');
+                      }}
+                    >
+                      Limpiar Filtros
+                    </Button>
+                  ) : (
                     <Button
                       variant="outline"
                       onClick={() => {
@@ -636,63 +808,101 @@ export default function App() {
                     </Flex>
 
                     <Flex wrap="wrap" gap="3">
-                      {groupServers.map((s) => (
-                        <Card
-                          key={s.id}
-                          size="2"
-                          style={{
-                            width: 300,
-                            border: '1px solid var(--gray-5)',
-                            transition: 'all 0.15s ease'
-                          }}
-                        >
-                          <Flex direction="column" gap="3">
-                            <Flex justify="between" align="start">
-                              <Box>
-                                <Heading size="3">{s.name}</Heading>
-                                <Text size="1" color="gray">
-                                  {s.username}@{s.host}:{s.port}
-                                </Text>
-                              </Box>
+                      {groupServers.map((s) => {
+                        const keyObj = s.keyId ? vault.keys.find((k) => k.id === s.keyId) : undefined;
+                        return (
+                          <Card
+                            key={s.id}
+                            size="2"
+                            style={{
+                              width: 320,
+                              border: '1px solid var(--gray-5)',
+                              transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                              cursor: 'pointer'
+                            }}
+                            onDoubleClick={() => handleConnect(s)}
+                          >
+                            <Flex direction="column" gap="3">
+                              {/* Header de la tarjeta */}
+                              <Flex justify="between" align="start">
+                                <Box style={{ minWidth: 0, flex: 1, paddingRight: 8 }}>
+                                  <Heading size="3" truncate title={s.name}>
+                                    {s.name}
+                                  </Heading>
+                                  <Text size="1" color="gray" truncate title={`${s.username}@${s.host}:${s.port}`}>
+                                    {s.username}@{s.host}
+                                  </Text>
+                                </Box>
 
-                              <DropdownMenu.Root>
-                                <DropdownMenu.Trigger>
-                                  <IconButton size="1" variant="ghost" color="gray">
-                                    <MoreVertical size={16} />
-                                  </IconButton>
-                                </DropdownMenu.Trigger>
-                                <DropdownMenu.Content>
-                                  <DropdownMenu.Item
-                                    onClick={() => {
-                                      setEditingServer(s);
-                                      setIsServerModalOpen(true);
-                                    }}
-                                  >
-                                    <Edit2 size={14} style={{ marginRight: 6 }} /> Editar
-                                  </DropdownMenu.Item>
-                                  <DropdownMenu.Item onClick={() => handleDuplicateServer(s)}>
-                                    <Copy size={14} style={{ marginRight: 6 }} /> Duplicar
-                                  </DropdownMenu.Item>
-                                  <DropdownMenu.Separator />
-                                  <DropdownMenu.Item color="red" onClick={() => handleDeleteServer(s.id)}>
-                                    <Trash2 size={14} style={{ marginRight: 6 }} /> Eliminar
-                                  </DropdownMenu.Item>
-                                </DropdownMenu.Content>
-                              </DropdownMenu.Root>
+                                <Flex align="center" gap="1">
+                                  <Tooltip content="Copiar comando SSH">
+                                    <IconButton
+                                      size="1"
+                                      variant="ghost"
+                                      color="gray"
+                                      onClick={(e) => handleCopySSHCommand(s, e)}
+                                    >
+                                      <Copy size={13} />
+                                    </IconButton>
+                                  </Tooltip>
+
+                                  <DropdownMenu.Root>
+                                    <DropdownMenu.Trigger>
+                                      <IconButton size="1" variant="ghost" color="gray">
+                                        <MoreVertical size={16} />
+                                      </IconButton>
+                                    </DropdownMenu.Trigger>
+                                    <DropdownMenu.Content>
+                                      <DropdownMenu.Item
+                                        onClick={() => {
+                                          setEditingServer(s);
+                                          setIsServerModalOpen(true);
+                                        }}
+                                      >
+                                        <Edit2 size={14} style={{ marginRight: 6 }} /> Editar
+                                      </DropdownMenu.Item>
+                                      <DropdownMenu.Item onClick={() => handleDuplicateServer(s)}>
+                                        <Copy size={14} style={{ marginRight: 6 }} /> Duplicar
+                                      </DropdownMenu.Item>
+                                      <DropdownMenu.Item onClick={(e) => handleCopySSHCommand(s, e as any)}>
+                                        <Terminal size={14} style={{ marginRight: 6 }} /> Copiar Comando SSH
+                                      </DropdownMenu.Item>
+                                      <DropdownMenu.Separator />
+                                      <DropdownMenu.Item color="red" onClick={() => handleDeleteServer(s.id)}>
+                                        <Trash2 size={14} style={{ marginRight: 6 }} /> Eliminar
+                                      </DropdownMenu.Item>
+                                    </DropdownMenu.Content>
+                                  </DropdownMenu.Root>
+                                </Flex>
+                              </Flex>
+
+                              {/* Badges de Detalles */}
+                              <Flex align="center" gap="2" wrap="wrap">
+                                <Badge color={s.port === 22 ? 'gray' : 'cyan'} size="1">
+                                  Puerto {s.port}
+                                </Badge>
+
+                                <Badge color={s.authType === 'key' ? 'iris' : 'amber'} size="1">
+                                  {s.authType === 'key'
+                                    ? `Llave: ${keyObj?.name || 'Asignada'}`
+                                    : 'Contraseña'}
+                                </Badge>
+                              </Flex>
+
+                              {/* Botón Principal de Conexión */}
+                              <Button
+                                variant="solid"
+                                color="iris"
+                                size="2"
+                                onClick={() => handleConnect(s)}
+                                style={{ cursor: 'pointer' }}
+                              >
+                                <Terminal size={15} style={{ marginRight: 6 }} /> Conectar SSH
+                              </Button>
                             </Flex>
-
-                            <Flex align="center" gap="2">
-                              <Badge color={s.authType === 'key' ? 'iris' : 'amber'} size="1">
-                                {s.authType === 'key' ? 'Clave SSH' : 'Contraseña'}
-                              </Badge>
-                            </Flex>
-
-                            <Button variant="solid" color="iris" size="2" onClick={() => handleConnect(s)}>
-                              <ExternalLink size={15} style={{ marginRight: 6 }} /> Conectar SSH
-                            </Button>
-                          </Flex>
-                        </Card>
-                      ))}
+                          </Card>
+                        );
+                      })}
                     </Flex>
                   </Box>
                 ))
@@ -701,14 +911,14 @@ export default function App() {
           </Flex>
         )}
 
-        {/* KEYS VIEW (Rendered when no session is active and activeTab is keys) */}
+        {/* VISTA DE CLAVES SSH */}
         {!activeSessionId && activeTab === 'keys' && (
           <Flex direction="column" style={{ flex: 1, minHeight: 0 }}>
             <Flex align="center" justify="between" px="5" py="4" style={{ borderBottom: '1px solid var(--gray-4)' }}>
               <Flex direction="column">
                 <Heading size="5">Claves SSH de la Bóveda</Heading>
                 <Text size="2" color="gray">
-                  Llaves privadas y públicas almacenadas con cifrado fuerte
+                  Llaves privadas y públicas almacenadas con cifrado fuerte de memoria
                 </Text>
               </Flex>
               <Button size="2" variant="solid" onClick={() => setIsKeyModalOpen(true)}>
@@ -718,13 +928,13 @@ export default function App() {
 
             <ScrollArea style={{ flex: 1, padding: 24 }}>
               {vault.keys.length === 0 ? (
-                <Flex direction="column" align="center" justify="center" style={{ height: 300 }} gap="3">
+                <Flex direction="column" align="center" justify="center" style={{ height: 320 }} gap="3">
                   <KeyRound size={48} color="var(--gray-8)" />
                   <Heading size="3" color="gray">
                     No tienes claves SSH guardadas
                   </Heading>
                   <Text size="2" color="gray">
-                    Almacena llaves RSA o Ed25519 para asignarlas fácilmente a tus servidores.
+                    Almacena llaves RSA o Ed25519 para asignarlas fácilmente a tus servidores sin tipear contraseñas.
                   </Text>
                   <Button variant="outline" onClick={() => setIsKeyModalOpen(true)}>
                     <Plus size={14} style={{ marginRight: 4 }} /> Agregar Clave
@@ -740,7 +950,7 @@ export default function App() {
                             <KeyRound size={18} color="var(--iris-9)" />
                             <Heading size="3">{k.name}</Heading>
                           </Flex>
-                          <IconButton size="1" variant="ghost" color="ruby" onClick={() => handleDeleteKey(k.id)}>
+                          <IconButton size="1" variant="ghost" color="ruby" onClick={() => handleDeleteKey(k.id)} title="Eliminar llave">
                             <Trash2 size={15} />
                           </IconButton>
                         </Flex>
@@ -749,42 +959,24 @@ export default function App() {
                           Creado: {new Date(k.createdAt).toLocaleDateString()}
                         </Text>
 
-                        {k.publicKey ? (
-                          <Box
-                            p="2"
-                            style={{
-                              background: 'var(--gray-3)',
-                              borderRadius: '6px',
-                              fontFamily: 'monospace',
-                              fontSize: 11,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap'
-                            }}
-                          >
-                            {k.publicKey}
-                          </Box>
-                        ) : (
-                          <Text size="1" color="gray">
-                            (Sin llave pública asociada)
-                          </Text>
+                        {k.publicKey && (
+                          <Flex align="center" gap="2" mt="1">
+                            <Badge color="green" size="1">
+                              Clave Pública disponible
+                            </Badge>
+                            <Button
+                              size="1"
+                              variant="ghost"
+                              color="gray"
+                              onClick={() => {
+                                navigator.clipboard.writeText(k.publicKey || '');
+                                showToast('Clave pública copiada al portapapeles.');
+                              }}
+                            >
+                              <Copy size={12} style={{ marginRight: 4 }} /> Copiar
+                            </Button>
+                          </Flex>
                         )}
-
-                        <Flex justify="between" align="center" mt="1">
-                          <Badge color="green" size="1">
-                            {k.passphrase ? 'Con Passphrase' : 'Sin Passphrase'}
-                          </Badge>
-                          <Button
-                            size="1"
-                            variant="soft"
-                            onClick={() => {
-                              navigator.clipboard.writeText(k.publicKey || k.privateKey);
-                              showToast('Clave copiada al portapapeles.');
-                            }}
-                          >
-                            Copiar
-                          </Button>
-                        </Flex>
                       </Flex>
                     </Card>
                   ))}
@@ -795,7 +987,7 @@ export default function App() {
         )}
       </Flex>
 
-      {/* Modals */}
+      {/* Modales */}
       <ServerModal
         open={isServerModalOpen}
         onOpenChange={setIsServerModalOpen}
@@ -804,7 +996,11 @@ export default function App() {
         initialServer={editingServer}
       />
 
-      <KeyModal open={isKeyModalOpen} onOpenChange={setIsKeyModalOpen} onSave={handleSaveKey} />
+      <KeyModal
+        open={isKeyModalOpen}
+        onOpenChange={setIsKeyModalOpen}
+        onSave={handleSaveKey}
+      />
 
       <GitHubSyncModal
         isOpen={isGitHubModalOpen}

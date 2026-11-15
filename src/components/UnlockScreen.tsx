@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Heading, Text, TextField, Button, Flex, Callout, Tabs, Box, Select, Progress, Badge } from '@radix-ui/themes';
-import { Lock, KeyRound, FolderOpen, AlertCircle, Sparkles, Cpu, ShieldAlert, CloudDownload, CheckCircle2, ExternalLink } from 'lucide-react';
+import { Card, Heading, Text, TextField, Button, Flex, Callout, Tabs, Box, Select, Progress, Badge, SegmentedControl, IconButton } from '@radix-ui/themes';
+import { Lock, KeyRound, FolderOpen, AlertCircle, Sparkles, Cpu, CloudDownload, CheckCircle2, ExternalLink, Eye, EyeOff, FolderGit2, FileCode2 } from 'lucide-react';
 import { GitHubLogoIcon } from '@radix-ui/react-icons';
 import type { VaultData } from '../types';
 import {
@@ -8,7 +8,10 @@ import {
   saveGitHubConfig,
   validateGitHubToken,
   pullVaultFromGitHub,
-  GITHUB_TOKEN_CREATE_URL
+  DEFAULT_REPO_NAME,
+  GITHUB_TOKEN_CREATE_URL,
+  type GitHubSyncTarget,
+  type GitHubSyncConfig
 } from '../services/githubSync';
 import logoSvg from '../assets/logo.svg';
 
@@ -22,17 +25,25 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [filePath, setFilePath] = useState<string>('');
   const [profile, setProfile] = useState<'standard' | 'strong' | 'maximum'>('strong');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successInfo, setSuccessInfo] = useState<string | null>(null);
 
   // GitHub Restore state
   const [githubToken, setGithubToken] = useState('');
+  const [restoreTarget, setRestoreTarget] = useState<GitHubSyncTarget>('repo');
+  const [restoreRepoName, setRestoreRepoName] = useState(DEFAULT_REPO_NAME);
   const [isPullingFromGitHub, setIsPullingFromGitHub] = useState(false);
 
   useEffect(() => {
     const config = getGitHubConfig();
     if (config?.token) {
       setGithubToken(config.token);
+      setRestoreTarget(config.targetType || (config.gistId ? 'gist' : 'repo'));
+      if (config.repoName) {
+        setRestoreRepoName(config.repoName);
+      }
     }
   }, []);
   
@@ -78,8 +89,7 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
     setError(null);
 
     try {
-      // Indicador visual de computación criptográfica
-      const progressPromise = simulateProgress('Derivando clave con Argon2id y verificando integridad AES-GCM...', 1200);
+      const progressPromise = simulateProgress('Derivando clave con Argon2id y verificando integridad AES-GCM...', 1100);
       const unlockPromise = window.electronAPI.unlockVault(password, filePath || undefined);
 
       const [, res] = await Promise.all([progressPromise, unlockPromise]);
@@ -89,7 +99,7 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
         setStatusMessage('Bóveda verificada con éxito. Abriendo...');
         setTimeout(() => {
           onUnlock(res.data!, res.filePath || filePath, res.isLegacyV1);
-        }, 300);
+        }, 250);
       } else {
         setIsProcessing(false);
         setError(res.error || 'Contraseña incorrecta o archivo de bóveda corrupto.');
@@ -114,7 +124,7 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
     setError(null);
 
     try {
-      const progressPromise = simulateProgress('Generando DEK y computando KEK con Argon2id...', 1200);
+      const progressPromise = simulateProgress('Generando DEK y computando KEK con Argon2id...', 1100);
       const initPromise = window.electronAPI.initVault(password, filePath || undefined, profile);
 
       const [, res] = await Promise.all([progressPromise, initPromise]);
@@ -124,7 +134,7 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
         setStatusMessage('Bóveda protegida exitosamente. Abriendo...');
         setTimeout(() => {
           onUnlock(res.data!, res.filePath || filePath, false);
-        }, 300);
+        }, 250);
       } else {
         setIsProcessing(false);
         setError(res.error || 'Error creando la bóveda.');
@@ -148,10 +158,19 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
     try {
       const validation = await validateGitHubToken(githubToken);
       if (!validation.valid || !validation.user) {
-        throw new Error(validation.error || 'Token inválido o sin acceso a Gists.');
+        throw new Error(validation.error || 'Token inválido o sin permisos.');
       }
 
-      const res = await pullVaultFromGitHub(githubToken);
+      const syncConfig: GitHubSyncConfig = {
+        token: githubToken.trim(),
+        targetType: restoreTarget,
+        repoOwner: validation.user.login,
+        repoName: restoreRepoName.trim() || DEFAULT_REPO_NAME,
+        user: validation.user,
+        autoSync: true
+      };
+
+      const res = await pullVaultFromGitHub(syncConfig);
       if (!res.success || !res.encryptedContent) {
         throw new Error(res.error || 'No se encontró la bóveda de RellySSH en tu cuenta de GitHub.');
       }
@@ -162,15 +181,18 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
       }
 
       saveGitHubConfig({
-        token: githubToken.trim(),
-        user: validation.user,
+        ...syncConfig,
+        repoUrl: res.repoUrl,
+        lastCommitSha: res.commitSha,
         gistId: res.gistId,
-        autoSync: true,
-        lastSyncTime: res.updatedAt,
+        lastSyncTime: res.updatedAt || new Date().toISOString(),
         lastSyncAction: 'pull'
       });
 
-      setSuccessInfo(`¡Bóveda de @${validation.user.login} descargada exitosamente! Ingresá tu contraseña maestra para abrirla.`);
+      const sourceName = restoreTarget === 'repo'
+        ? `repositorio "${syncConfig.repoName}"`
+        : 'Gist privado';
+      setSuccessInfo(`¡Bóveda descargada exitosamente desde tu ${sourceName}! Ingresá tu contraseña maestra para abrirla.`);
       setTab('unlock');
     } catch (err: any) {
       setError(err.message || 'Error al restaurar desde GitHub.');
@@ -192,7 +214,7 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
       <Card
         size="4"
         style={{
-          width: 460,
+          width: 470,
           padding: 32,
           backdropFilter: 'blur(30px)',
           background: 'rgba(7, 21, 47, 0.75)',
@@ -277,7 +299,7 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
                   <Sparkles size={14} style={{ marginRight: 6 }} /> Crear
                 </Tabs.Trigger>
                 <Tabs.Trigger value="github" style={{ flex: 1 }}>
-                  <GitHubLogoIcon width={14} height={14} style={{ marginRight: 6 }} /> GitHub
+                  <GitHubLogoIcon width={14} height={14} style={{ marginRight: 6 }} /> GitHub Sync
                 </Tabs.Trigger>
               </Tabs.List>
 
@@ -297,7 +319,7 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
                             onChange={(e) => setFilePath(e.target.value)}
                             style={{ flex: 1 }}
                           />
-                          <Button type="button" variant="soft" color="gray" onClick={handleSelectFile}>
+                          <Button type="button" variant="soft" color="gray" onClick={handleSelectFile} title="Explorar archivo">
                             <FolderOpen size={16} />
                           </Button>
                         </Flex>
@@ -308,7 +330,7 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
                           Contraseña Maestra
                         </Text>
                         <TextField.Root
-                          type="password"
+                          type={showPassword ? 'text' : 'password'}
                           size="3"
                           placeholder="••••••••••••"
                           value={password}
@@ -317,6 +339,19 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
                         >
                           <TextField.Slot>
                             <Lock size={16} />
+                          </TextField.Slot>
+                          <TextField.Slot>
+                            <IconButton
+                              size="1"
+                              variant="ghost"
+                              color="gray"
+                              type="button"
+                              onClick={() => setShowPassword(!showPassword)}
+                              tabIndex={-1}
+                              title={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                            >
+                              {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                            </IconButton>
                           </TextField.Slot>
                         </TextField.Root>
                       </Flex>
@@ -382,7 +417,7 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
                           Nueva Contraseña Maestra
                         </Text>
                         <TextField.Root
-                          type="password"
+                          type={showPassword ? 'text' : 'password'}
                           size="2"
                           placeholder="Contraseña robusta..."
                           value={password}
@@ -390,6 +425,18 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
                         >
                           <TextField.Slot>
                             <Lock size={16} />
+                          </TextField.Slot>
+                          <TextField.Slot>
+                            <IconButton
+                              size="1"
+                              variant="ghost"
+                              color="gray"
+                              type="button"
+                              onClick={() => setShowPassword(!showPassword)}
+                              tabIndex={-1}
+                            >
+                              {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                            </IconButton>
                           </TextField.Slot>
                         </TextField.Root>
                       </Flex>
@@ -399,7 +446,7 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
                           Confirmar Contraseña
                         </Text>
                         <TextField.Root
-                          type="password"
+                          type={showConfirmPassword ? 'text' : 'password'}
                           size="2"
                           placeholder="Repite la contraseña..."
                           value={confirmPassword}
@@ -407,6 +454,18 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
                         >
                           <TextField.Slot>
                             <Lock size={16} />
+                          </TextField.Slot>
+                          <TextField.Slot>
+                            <IconButton
+                              size="1"
+                              variant="ghost"
+                              color="gray"
+                              type="button"
+                              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                              tabIndex={-1}
+                            >
+                              {showConfirmPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                            </IconButton>
                           </TextField.Slot>
                         </TextField.Root>
                       </Flex>
@@ -424,9 +483,46 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
                           <GitHubLogoIcon width={16} height={16} />
                         </Callout.Icon>
                         <Callout.Text>
-                          Descargá tu bóveda cifrada desde tu cuenta de GitHub para sincronizar este dispositivo.
+                          Restaurá tu bóveda cifrada desde tu repositorio privado de GitHub en cualquier equipo nuevo.
                         </Callout.Text>
                       </Callout.Root>
+
+                      <Box>
+                        <Text size="1" weight="medium" mb="1" style={{ color: '#88a0c5' }}>
+                          Origen de la Bóveda en GitHub:
+                        </Text>
+                        <SegmentedControl.Root
+                          value={restoreTarget}
+                          onValueChange={(val) => setRestoreTarget(val as GitHubSyncTarget)}
+                          size="1"
+                          style={{ width: '100%' }}
+                        >
+                          <SegmentedControl.Item value="repo">
+                            <Flex align="center" gap="1">
+                              <FolderGit2 size={13} /> Repositorio Privado
+                            </Flex>
+                          </SegmentedControl.Item>
+                          <SegmentedControl.Item value="gist">
+                            <Flex align="center" gap="1">
+                              <FileCode2 size={13} /> Gist
+                            </Flex>
+                          </SegmentedControl.Item>
+                        </SegmentedControl.Root>
+                      </Box>
+
+                      {restoreTarget === 'repo' && (
+                        <Box>
+                          <Text size="1" weight="medium" mb="1" style={{ color: '#88a0c5' }}>
+                            Nombre del Repositorio
+                          </Text>
+                          <TextField.Root
+                            size="2"
+                            placeholder="rellyssh-vault"
+                            value={restoreRepoName}
+                            onChange={(e) => setRestoreRepoName(e.target.value)}
+                          />
+                        </Box>
+                      )}
 
                       <Flex direction="column" gap="1">
                         <Flex justify="between" align="center">
@@ -457,7 +553,7 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
                           onChange={(e) => setGithubToken(e.target.value)}
                         />
                         <Text size="1" color="gray">
-                          Solo requiere permiso <Badge color="indigo" size="1">gist</Badge>.
+                          Requiere permiso <Badge color="indigo" size="1">repo</Badge> o <Badge color="indigo" size="1">gist</Badge>.
                         </Text>
                       </Flex>
 
@@ -469,7 +565,7 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
                         loading={isPullingFromGitHub}
                         style={{ background: '#087bff', color: '#fff', cursor: 'pointer' }}
                       >
-                        <CloudDownload size={16} style={{ marginRight: 6 }} /> Descargar Bóveda Cifrada
+                        <CloudDownload size={16} style={{ marginRight: 6 }} /> Descargar y Restaurar Bóveda
                       </Button>
                     </Flex>
                   </form>

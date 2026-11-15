@@ -12,7 +12,8 @@ import {
   Avatar,
   Separator,
   Switch,
-  Tooltip
+  Tooltip,
+  SegmentedControl
 } from '@radix-ui/themes';
 import { GitHubLogoIcon } from '@radix-ui/react-icons';
 import {
@@ -24,7 +25,10 @@ import {
   ShieldCheck,
   RefreshCw,
   LogOut,
-  Info
+  FolderGit2,
+  FileCode2,
+  GitCommit,
+  GitBranch
 } from 'lucide-react';
 import {
   getGitHubConfig,
@@ -33,8 +37,10 @@ import {
   validateGitHubToken,
   pushVaultToGitHub,
   pullVaultFromGitHub,
+  DEFAULT_REPO_NAME,
   GITHUB_TOKEN_CREATE_URL,
-  type GitHubSyncConfig
+  type GitHubSyncConfig,
+  type GitHubSyncTarget
 } from '../services/githubSync';
 import type { VaultData } from '../types';
 
@@ -53,6 +59,8 @@ export const GitHubSyncModal: React.FC<Props> = ({
 }) => {
   const [config, setConfig] = useState<GitHubSyncConfig | null>(null);
   const [tokenInput, setTokenInput] = useState('');
+  const [targetType, setTargetType] = useState<GitHubSyncTarget>('repo');
+  const [repoNameInput, setRepoNameInput] = useState(DEFAULT_REPO_NAME);
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
@@ -63,7 +71,15 @@ export const GitHubSyncModal: React.FC<Props> = ({
     if (isOpen) {
       const current = getGitHubConfig();
       setConfig(current);
-      setAutoSyncEnabled(current?.autoSync ?? false);
+      if (current) {
+        setTargetType(current.targetType || (current.gistId ? 'gist' : 'repo'));
+        setRepoNameInput(current.repoName || DEFAULT_REPO_NAME);
+        setAutoSyncEnabled(current.autoSync ?? false);
+      } else {
+        setTargetType('repo');
+        setRepoNameInput(DEFAULT_REPO_NAME);
+        setAutoSyncEnabled(false);
+      }
       setError(null);
     }
   }, [isOpen]);
@@ -85,8 +101,12 @@ export const GitHubSyncModal: React.FC<Props> = ({
       return;
     }
 
+    const cleanRepoName = repoNameInput.trim() || DEFAULT_REPO_NAME;
     const newConfig: GitHubSyncConfig = {
       token: tokenInput.trim(),
+      targetType,
+      repoOwner: validation.user.login,
+      repoName: cleanRepoName,
       user: validation.user,
       autoSync: autoSyncEnabled,
       lastSyncTime: undefined
@@ -103,6 +123,8 @@ export const GitHubSyncModal: React.FC<Props> = ({
     clearGitHubConfig();
     setConfig(null);
     setAutoSyncEnabled(false);
+    setTargetType('repo');
+    setRepoNameInput(DEFAULT_REPO_NAME);
     showToast('Cuenta de GitHub desvinculada.');
   };
 
@@ -113,6 +135,30 @@ export const GitHubSyncModal: React.FC<Props> = ({
       saveGitHubConfig(updated);
       setConfig(updated);
       showToast(checked ? 'Sincronización automática activada.' : 'Sincronización automática desactivada.');
+    }
+  };
+
+  const handleTargetTypeChange = (value: GitHubSyncTarget) => {
+    setTargetType(value);
+    if (config) {
+      const updated: GitHubSyncConfig = {
+        ...config,
+        targetType: value,
+        repoName: config.repoName || DEFAULT_REPO_NAME
+      };
+      saveGitHubConfig(updated);
+      setConfig(updated);
+      showToast(`Modo de sincronización cambiado a ${value === 'repo' ? 'Repositorio Privado' : 'Gist Privado'}.`);
+    }
+  };
+
+  const handleSaveRepoName = (newRepo: string) => {
+    const clean = newRepo.trim() || DEFAULT_REPO_NAME;
+    setRepoNameInput(clean);
+    if (config) {
+      const updated = { ...config, repoName: clean };
+      saveGitHubConfig(updated);
+      setConfig(updated);
     }
   };
 
@@ -127,22 +173,34 @@ export const GitHubSyncModal: React.FC<Props> = ({
         throw new Error('No se pudo leer la bóveda cifrada local.');
       }
 
-      const res = await pushVaultToGitHub(config.token, rawEncrypted, config.gistId);
+      const activeConfig: GitHubSyncConfig = {
+        ...config,
+        targetType,
+        repoName: repoNameInput.trim() || DEFAULT_REPO_NAME
+      };
+
+      const res = await pushVaultToGitHub(activeConfig, rawEncrypted);
       if (!res.success) {
-        throw new Error(res.error || 'Error al subir la bóveda.');
+        throw new Error(res.error || 'Error al subir la bóveda a GitHub.');
       }
 
       const updated: GitHubSyncConfig = {
-        ...config,
-        gistId: res.gistId,
-        gistUrl: res.gistUrl || config.gistUrl,
-        lastSyncTime: res.updatedAt,
+        ...activeConfig,
+        repoUrl: res.repoUrl || activeConfig.repoUrl,
+        lastCommitSha: res.commitSha || activeConfig.lastCommitSha,
+        gistId: res.gistId || activeConfig.gistId,
+        gistUrl: res.gistUrl || activeConfig.gistUrl,
+        lastSyncTime: res.updatedAt || new Date().toISOString(),
         lastSyncAction: 'push'
       };
 
       saveGitHubConfig(updated);
       setConfig(updated);
-      showToast('Bóveda cifrada respaldada exitosamente en GitHub Gist privado.');
+
+      const dest = activeConfig.targetType === 'repo'
+        ? `repositorio privado "${activeConfig.repoName}"`
+        : 'Gist privado';
+      showToast(`¡Bóveda cifrada respaldada exitosamente en tu ${dest}!`);
     } catch (err: any) {
       setError(err.message || 'Fallo al subir a GitHub.');
     } finally {
@@ -156,29 +214,37 @@ export const GitHubSyncModal: React.FC<Props> = ({
     setError(null);
 
     try {
-      const res = await pullVaultFromGitHub(config.token, config.gistId);
+      const activeConfig: GitHubSyncConfig = {
+        ...config,
+        targetType,
+        repoName: repoNameInput.trim() || DEFAULT_REPO_NAME
+      };
+
+      const res = await pullVaultFromGitHub(activeConfig);
       if (!res.success || !res.encryptedContent) {
-        throw new Error(res.error || 'Error al descargar la bóveda.');
+        throw new Error(res.error || 'Error al descargar la bóveda de GitHub.');
       }
 
-      // Save raw vault locally
+      // Guardar bóveda cifrada localmente
       const saveRes = await window.electronAPI.saveRawVault(res.encryptedContent);
       if (!saveRes.success) {
         throw new Error(saveRes.error || 'Error al guardar la bóveda localmente.');
       }
 
       const updated: GitHubSyncConfig = {
-        ...config,
-        gistId: res.gistId,
-        lastSyncTime: res.updatedAt,
+        ...activeConfig,
+        repoUrl: res.repoUrl || activeConfig.repoUrl,
+        lastCommitSha: res.commitSha || activeConfig.lastCommitSha,
+        gistId: res.gistId || activeConfig.gistId,
+        lastSyncTime: res.updatedAt || new Date().toISOString(),
         lastSyncAction: 'pull'
       };
 
       saveGitHubConfig(updated);
       setConfig(updated);
-      showToast('Bóveda descargada de GitHub y actualizada localmente.');
+      showToast('Bóveda descargada de GitHub y sincronizada localmente.');
 
-      // Try unlocking with cached password if possible
+      // Desbloquear con contraseña actual en memoria si está disponible
       const unlockRes = await window.electronAPI.unlockVault('');
       if (unlockRes.success && unlockRes.data && onVaultUpdated) {
         onVaultUpdated(unlockRes.data);
@@ -192,7 +258,7 @@ export const GitHubSyncModal: React.FC<Props> = ({
 
   return (
     <Dialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <Dialog.Content style={{ maxWidth: 520, borderRadius: 12 }}>
+      <Dialog.Content style={{ maxWidth: 540, borderRadius: 12 }}>
         <Dialog.Title>
           <Flex align="center" gap="2">
             <GitHubLogoIcon width={22} height={22} color="var(--iris-9)" />
@@ -203,7 +269,7 @@ export const GitHubSyncModal: React.FC<Props> = ({
         </Dialog.Title>
 
         <Dialog.Description size="2" color="gray" mb="3">
-          Sincronizá tu bóveda entre computadoras y dispositivos móviles mediante un Gist privado y cifrado.
+          Respaldo y sincronización entre dispositivos mediante un repositorio privado o Gist seguro.
         </Dialog.Description>
 
         {error && (
@@ -216,7 +282,7 @@ export const GitHubSyncModal: React.FC<Props> = ({
         )}
 
         {!config ? (
-          /* Connect Form */
+          /* Formulario de Conexión Inicial */
           <form onSubmit={handleConnect}>
             <Flex direction="column" gap="3">
               <Callout.Root color="blue" size="1">
@@ -224,9 +290,48 @@ export const GitHubSyncModal: React.FC<Props> = ({
                   <ShieldCheck size={16} />
                 </Callout.Icon>
                 <Callout.Text>
-                  <strong>Seguridad Zero-Knowledge:</strong> Tus servidores, contraseñas y claves privadas nunca se envían en texto plano. Solo se almacena el archivo cifrado con <strong>Argon2id + AES-256-GCM</strong>.
+                  <strong>Seguridad Zero-Knowledge:</strong> Tus contraseñas, claves privadas y configuraciones nunca se envían en texto plano. En GitHub solo se almacena el archivo cifrado con <strong>Argon2id + AES-256-GCM</strong>.
                 </Callout.Text>
               </Callout.Root>
+
+              <Box>
+                <Text size="2" weight="medium" mb="1">
+                  Destino de Almacenamiento:
+                </Text>
+                <SegmentedControl.Root
+                  value={targetType}
+                  onValueChange={(val) => setTargetType(val as GitHubSyncTarget)}
+                  style={{ width: '100%' }}
+                >
+                  <SegmentedControl.Item value="repo">
+                    <Flex align="center" gap="1">
+                      <FolderGit2 size={14} /> Repositorio Privado
+                    </Flex>
+                  </SegmentedControl.Item>
+                  <SegmentedControl.Item value="gist">
+                    <Flex align="center" gap="1">
+                      <FileCode2 size={14} /> Gist Privado
+                    </Flex>
+                  </SegmentedControl.Item>
+                </SegmentedControl.Root>
+              </Box>
+
+              {targetType === 'repo' && (
+                <Box>
+                  <Text size="2" weight="medium" mb="1">
+                    Nombre del Repositorio Privado
+                  </Text>
+                  <TextField.Root
+                    placeholder="rellyssh-vault"
+                    value={repoNameInput}
+                    onChange={(e) => setRepoNameInput(e.target.value)}
+                    disabled={isConnecting}
+                  />
+                  <Text size="1" color="gray" mt="1">
+                    Se creará automáticamente en tu cuenta si no existe.
+                  </Text>
+                </Box>
+              )}
 
               <Box>
                 <Flex justify="between" align="center" mb="1">
@@ -246,7 +351,7 @@ export const GitHubSyncModal: React.FC<Props> = ({
                       textDecoration: 'none'
                     }}
                   >
-                    Generar Token en GitHub <ExternalLink size={12} />
+                    Crear Token en GitHub <ExternalLink size={12} />
                   </a>
                 </Flex>
                 <TextField.Root
@@ -257,7 +362,7 @@ export const GitHubSyncModal: React.FC<Props> = ({
                   disabled={isConnecting}
                 />
                 <Text size="1" color="gray" mt="1">
-                  Solo requiere el permiso <Badge color="indigo" size="1">gist</Badge> para crear un Gist privado con tu bóveda.
+                  Requiere permiso <Badge color="indigo" size="1">repo</Badge> (para repositorios privados) o <Badge color="indigo" size="1">gist</Badge>.
                 </Text>
               </Box>
 
@@ -272,9 +377,9 @@ export const GitHubSyncModal: React.FC<Props> = ({
             </Flex>
           </form>
         ) : (
-          /* Connected State */
+          /* Estado Conectado */
           <Flex direction="column" gap="3">
-            {/* User Profile Card */}
+            {/* Tarjeta de Perfil de Usuario */}
             <Card size="2" style={{ background: 'var(--gray-3)' }}>
               <Flex align="center" justify="between">
                 <Flex align="center" gap="3">
@@ -307,36 +412,103 @@ export const GitHubSyncModal: React.FC<Props> = ({
               </Flex>
             </Card>
 
-            {/* Gist Info */}
+            {/* Selector de Modo de Destino */}
             <Box px="1">
-              <Flex justify="between" align="center">
-                <Text size="2" color="gray">
-                  Almacenamiento:
+              <Flex justify="between" align="center" mb="2">
+                <Text size="2" weight="medium">
+                  Modo de sincronización:
                 </Text>
-                {config.gistUrl ? (
-                  <a
-                    href={config.gistUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      fontSize: 12,
-                      color: 'var(--iris-9)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      textDecoration: 'none'
-                    }}
-                  >
-                    Gist Privado ({config.gistId?.slice(0, 8)}...) <ExternalLink size={12} />
-                  </a>
-                ) : (
-                  <Text size="1" color="gray">
-                    Pendiente de primer respaldo
-                  </Text>
-                )}
+                <SegmentedControl.Root
+                  value={targetType}
+                  onValueChange={(val) => handleTargetTypeChange(val as GitHubSyncTarget)}
+                  size="1"
+                >
+                  <SegmentedControl.Item value="repo">
+                    <Flex align="center" gap="1">
+                      <FolderGit2 size={13} /> Repositorio
+                    </Flex>
+                  </SegmentedControl.Item>
+                  <SegmentedControl.Item value="gist">
+                    <Flex align="center" gap="1">
+                      <FileCode2 size={13} /> Gist
+                    </Flex>
+                  </SegmentedControl.Item>
+                </SegmentedControl.Root>
               </Flex>
 
-              <Flex justify="between" align="center" mt="1">
+              {targetType === 'repo' ? (
+                <Box mb="2">
+                  <Flex justify="between" align="center">
+                    <Text size="2" color="gray">
+                      Repositorio Privado:
+                    </Text>
+                    {config.repoUrl || (config.user && config.repoName) ? (
+                      <a
+                        href={config.repoUrl || `https://github.com/${config.user?.login}/${config.repoName || DEFAULT_REPO_NAME}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--iris-9)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          textDecoration: 'none'
+                        }}
+                      >
+                        {config.user?.login}/{config.repoName || DEFAULT_REPO_NAME} <ExternalLink size={12} />
+                      </a>
+                    ) : (
+                      <Text size="1" color="gray">
+                        {config.repoName || DEFAULT_REPO_NAME} (Privado)
+                      </Text>
+                    )}
+                  </Flex>
+
+                  {config.lastCommitSha && (
+                    <Flex justify="between" align="center" mt="1">
+                      <Text size="2" color="gray">
+                        Último Commit:
+                      </Text>
+                      <Badge size="1" color="gray" variant="surface">
+                        <GitCommit size={11} style={{ marginRight: 3 }} />
+                        {config.lastCommitSha.slice(0, 7)}
+                      </Badge>
+                    </Flex>
+                  )}
+                </Box>
+              ) : (
+                <Box mb="2">
+                  <Flex justify="between" align="center">
+                    <Text size="2" color="gray">
+                      Gist Privado:
+                    </Text>
+                    {config.gistUrl ? (
+                      <a
+                        href={config.gistUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--iris-9)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          textDecoration: 'none'
+                        }}
+                      >
+                        Gist ({config.gistId?.slice(0, 8)}...) <ExternalLink size={12} />
+                      </a>
+                    ) : (
+                      <Text size="1" color="gray">
+                        Pendiente de primer respaldo
+                      </Text>
+                    )}
+                  </Flex>
+                </Box>
+              )}
+
+              <Flex justify="between" align="center">
                 <Text size="2" color="gray">
                   Última sincronización:
                 </Text>
@@ -350,14 +522,14 @@ export const GitHubSyncModal: React.FC<Props> = ({
 
             <Separator size="4" my="1" />
 
-            {/* Auto-Sync Toggle */}
+            {/* Switch de Auto-Sync */}
             <Flex align="center" justify="between" px="1">
               <Box>
                 <Text size="2" weight="medium">
                   Sincronización Automática (Auto-Sync)
                 </Text>
                 <Text size="1" color="gray">
-                  Sube los cambios a GitHub automáticamente al guardar servidores o llaves.
+                  Guarda automáticamente en GitHub cada vez que creás o modificás un servidor o clave SSH.
                 </Text>
               </Box>
               <Switch checked={autoSyncEnabled} onCheckedChange={handleToggleAutoSync} />
@@ -365,7 +537,7 @@ export const GitHubSyncModal: React.FC<Props> = ({
 
             <Separator size="4" my="1" />
 
-            {/* Sync Action Buttons */}
+            {/* Botones de Acción de Sincronización */}
             <Flex gap="2" mt="1">
               <Button
                 variant="solid"
@@ -375,7 +547,7 @@ export const GitHubSyncModal: React.FC<Props> = ({
                 loading={isPushing}
                 disabled={isPulling}
               >
-                <CloudUpload size={15} style={{ marginRight: 6 }} /> Subir a GitHub (Backup)
+                <CloudUpload size={15} style={{ marginRight: 6 }} /> Subir a GitHub ({targetType === 'repo' ? 'Repo' : 'Gist'})
               </Button>
 
               <Button
@@ -386,7 +558,7 @@ export const GitHubSyncModal: React.FC<Props> = ({
                 loading={isPulling}
                 disabled={isPushing}
               >
-                <CloudDownload size={15} style={{ marginRight: 6 }} /> Descargar de GitHub
+                <CloudDownload size={15} style={{ marginRight: 6 }} /> Descargar y Restaurar
               </Button>
             </Flex>
 

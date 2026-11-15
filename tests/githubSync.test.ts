@@ -6,6 +6,11 @@ import {
   getGitHubConfig,
   saveGitHubConfig,
   clearGitHubConfig,
+  getOrCreateVaultRepo,
+  pushVaultToGitHubRepo,
+  pullVaultFromGitHubRepo,
+  utf8ToBase64,
+  base64ToUtf8,
   type GitHubSyncConfig
 } from '../src/services/githubSync';
 
@@ -236,6 +241,183 @@ describe('RellySSH GitHub Sync Service', () => {
       const res = await pullVaultFromGitHub('ghp_token');
       expect(res.success).toBe(false);
       expect(res.error).toContain('No se encontró');
+    });
+  });
+
+  describe('Base64 Encoding & Decoding', () => {
+    it('should encode and decode unicode strings and JSON payloads correctly', () => {
+      const sample = JSON.stringify({
+        hello: 'mundo 🚀',
+        servidores: ['Servidor Producción ⚡', 'Base de datos ñandú']
+      });
+
+      const b64 = utf8ToBase64(sample);
+      expect(typeof b64).toBe('string');
+      const decoded = base64ToUtf8(b64);
+      expect(decoded).toBe(sample);
+    });
+  });
+
+  describe('Repository Sync', () => {
+    const dummyEncryptedVault = JSON.stringify({
+      format: 'RELLY_VAULT',
+      version: 2,
+      payload: { ciphertext: 'beef1234' }
+    });
+
+    it('should detect existing private repository', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          html_url: 'https://github.com/octocat/rellyssh-vault',
+          default_branch: 'main'
+        })
+      } as Response);
+
+      const res = await getOrCreateVaultRepo('ghp_token', 'octocat', 'rellyssh-vault');
+      expect(res.exists).toBe(true);
+      expect(res.repoUrl).toBe('https://github.com/octocat/rellyssh-vault');
+      expect(res.defaultBranch).toBe('main');
+    });
+
+    it('should create private repository when 404 is returned', async () => {
+      // 1. Check -> 404
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 404,
+          json: async () => ({ message: 'Not Found' })
+        } as Response)
+        // 2. Create -> 201
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          json: async () => ({
+            html_url: 'https://github.com/octocat/rellyssh-vault',
+            default_branch: 'main'
+          })
+        } as Response);
+
+      const res = await getOrCreateVaultRepo('ghp_token', 'octocat', 'rellyssh-vault');
+      expect(res.exists).toBe(true);
+      expect(res.created).toBe(true);
+      expect(res.repoUrl).toBe('https://github.com/octocat/rellyssh-vault');
+    });
+
+    it('should push vault to GitHub repository with commit sha', async () => {
+      // 1. Repo check -> 200
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ html_url: 'https://github.com/octocat/rellyssh-vault', default_branch: 'main' })
+        } as Response)
+        // 2. Existing file check -> 200 with previous sha
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ sha: 'prev_blob_sha' })
+        } as Response)
+        // 3. PUT file contents
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            commit: { sha: 'new_commit_sha_123' },
+            content: { sha: 'new_blob_sha' }
+          })
+        } as Response)
+        // 4. README check -> 200
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ sha: 'readme_sha' })
+        } as Response);
+
+      const res = await pushVaultToGitHubRepo('ghp_token', 'octocat', dummyEncryptedVault, 'rellyssh-vault');
+      expect(res.success).toBe(true);
+      expect(res.commitSha).toBe('new_commit_sha_123');
+      expect(res.repoUrl).toBe('https://github.com/octocat/rellyssh-vault');
+    });
+
+    it('should pull vault from GitHub repository and decode base64 content', async () => {
+      const b64 = utf8ToBase64(dummyEncryptedVault);
+
+      // GET file contents
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          sha: 'blob_sha_xyz',
+          content: b64
+        })
+      } as Response);
+
+      const res = await pullVaultFromGitHubRepo('ghp_token', 'octocat', 'rellyssh-vault');
+      expect(res.success).toBe(true);
+      expect(res.encryptedContent).toBe(dummyEncryptedVault);
+      expect(res.commitSha).toBe('blob_sha_xyz');
+    });
+
+    it('should perform unified push and pull targeting repository', async () => {
+      const config: GitHubSyncConfig = {
+        token: 'ghp_token',
+        targetType: 'repo',
+        repoOwner: 'octocat',
+        repoName: 'my-custom-vault',
+        autoSync: true
+      };
+
+      // Push mock
+      vi.spyOn(globalThis, 'fetch')
+        // repo check
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ html_url: 'https://github.com/octocat/my-custom-vault', default_branch: 'main' })
+        } as Response)
+        // file check
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 404,
+          json: async () => ({ message: 'Not found' })
+        } as Response)
+        // PUT file
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 201,
+          json: async () => ({
+            commit: { sha: 'commit_sha_abc' },
+            content: { sha: 'blob_sha_abc' }
+          })
+        } as Response)
+        // README check
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ sha: 'readme_sha' })
+        } as Response);
+
+      const pushRes = await pushVaultToGitHub(config, dummyEncryptedVault);
+      expect(pushRes.success).toBe(true);
+      expect(pushRes.targetType).toBe('repo');
+      expect(pushRes.commitSha).toBe('commit_sha_abc');
+
+      // Pull mock
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          sha: 'blob_sha_abc',
+          content: utf8ToBase64(dummyEncryptedVault)
+        })
+      } as Response);
+
+      const pullRes = await pullVaultFromGitHub(config);
+      expect(pullRes.success).toBe(true);
+      expect(pullRes.targetType).toBe('repo');
+      expect(pullRes.encryptedContent).toBe(dummyEncryptedVault);
     });
   });
 });
