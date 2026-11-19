@@ -1,6 +1,6 @@
 {
   "name": "rellyssh",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Modern, lightweight, free & open-source cross-platform SSH client with encrypted zero-knowledge vault",
   "main": "dist-electron/main.js",
   "scripts": {
