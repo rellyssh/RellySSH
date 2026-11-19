@@ -13,11 +13,14 @@ interface Props {
   isLocal?: boolean;
   isActive?: boolean;
   onClose: () => void;
+  onUserInput?: (data: string) => void;
 }
 
-export const TerminalTab: React.FC<Props> = ({ sessionId, server, sshKey, isLocal, isActive = true, onClose }) => {
+export const TerminalTab: React.FC<Props> = ({ sessionId, server, sshKey, isLocal, isActive = true, onClose, onUserInput }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalInstanceRef = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
+  const onUserInputRef = useRef(onUserInput);
+  onUserInputRef.current = onUserInput;
 
   useEffect(() => {
     if (isActive && terminalInstanceRef.current) {
@@ -99,6 +102,7 @@ export const TerminalTab: React.FC<Props> = ({ sessionId, server, sshKey, isLoca
             } else {
               window.electronAPI.sendSSHData(sessionId, clipText);
             }
+            onUserInputRef.current?.(clipText);
           });
           return false;
         }
@@ -132,6 +136,7 @@ export const TerminalTab: React.FC<Props> = ({ sessionId, server, sshKey, isLoca
 
       term.onData((data) => {
         window.electronAPI.sendLocalData(sessionId, data);
+        onUserInputRef.current?.(data);
       });
     } else if (server) {
       term.writeln(`\x1b[36m⚡ Conectando a ${server.username}@${server.host}:${server.port}...\x1b[0m\r\n`);
@@ -158,6 +163,7 @@ export const TerminalTab: React.FC<Props> = ({ sessionId, server, sshKey, isLoca
 
       term.onData((data) => {
         window.electronAPI.sendSSHData(sessionId, data);
+        onUserInputRef.current?.(data);
       });
     }
 
@@ -203,6 +209,7 @@ export const TerminalTab: React.FC<Props> = ({ sessionId, server, sshKey, isLoca
         } else {
           window.electronAPI.sendSSHData(sessionId, text);
         }
+        onUserInputRef.current?.(text);
       }
     } catch (_) {}
   };

@@ -36,7 +36,8 @@ import {
   FolderGit2,
   Sparkles,
   RefreshCw,
-  LayoutGrid
+  LayoutGrid,
+  Radio
 } from 'lucide-react';
 import { GitHubLogoIcon } from '@radix-ui/react-icons';
 import type { VaultData, SSHServer, SSHKey } from './types';
@@ -44,6 +45,7 @@ import { UnlockScreen } from './components/UnlockScreen';
 import { ServerModal } from './components/ServerModal';
 import { KeyModal } from './components/KeyModal';
 import { TerminalTab } from './components/TerminalTab';
+import { BroadcastBar } from './components/BroadcastBar';
 import { GitHubSyncModal } from './components/GitHubSyncModal';
 import { getGitHubConfig, saveGitHubConfig, pushVaultToGitHub } from './services/githubSync';
 import logoSvg from './assets/logo.svg';
@@ -73,6 +75,11 @@ export default function App() {
   // Active SSH & local terminal sessions
   const [sessions, setSessions] = useState<OpenSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+
+  // Multi-terminal broadcast state (Termius-like)
+  const [isBroadcastOpen, setIsBroadcastOpen] = useState<boolean>(false);
+  const [isLiveBroadcast, setIsLiveBroadcast] = useState<boolean>(false);
+  const [selectedBroadcastSessionIds, setSelectedBroadcastSessionIds] = useState<string[]>([]);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -107,6 +114,9 @@ export default function App() {
     setVault(null);
     setCurrentPath('');
     setSessions([]);
+    setSelectedBroadcastSessionIds([]);
+    setIsBroadcastOpen(false);
+    setIsLiveBroadcast(false);
     setActiveSessionId(null);
     showToast('Bóveda bloqueada con éxito.');
   };
@@ -194,6 +204,7 @@ export default function App() {
   const handleConnect = (server: SSHServer) => {
     const sessionId = crypto.randomUUID();
     setSessions((prev) => [...prev, { sessionId, name: server.name, server }]);
+    setSelectedBroadcastSessionIds((prev) => [...prev, sessionId]);
     setActiveSessionId(sessionId);
   };
 
@@ -201,6 +212,7 @@ export default function App() {
     const sessionId = crypto.randomUUID();
     const count = sessions.filter((p) => p.isLocal).length + 1;
     setSessions((prev) => [...prev, { sessionId, name: `Local #${count}`, isLocal: true }]);
+    setSelectedBroadcastSessionIds((prev) => [...prev, sessionId]);
     setActiveSessionId(sessionId);
   };
 
@@ -211,6 +223,66 @@ export default function App() {
         setActiveSessionId(remaining.length > 0 ? remaining[remaining.length - 1].sessionId : null);
       }
       return remaining;
+    });
+    setSelectedBroadcastSessionIds((prev) => prev.filter((id) => id !== sessionId));
+  };
+
+  // Broadcast handlers (Termius-like multi-terminal execution)
+  const handleToggleBroadcastSession = (sessionId: string) => {
+    setSelectedBroadcastSessionIds((prev) =>
+      prev.includes(sessionId) ? prev.filter((id) => id !== sessionId) : [...prev, sessionId]
+    );
+  };
+
+  const handleSelectAllBroadcastSessions = () => {
+    setSelectedBroadcastSessionIds(sessions.map((s) => s.sessionId));
+  };
+
+  const handleDeselectAllBroadcastSessions = () => {
+    setSelectedBroadcastSessionIds([]);
+  };
+
+  const handleToggleLiveBroadcast = () => {
+    setIsLiveBroadcast((prev) => {
+      const next = !prev;
+      if (next) {
+        showToast('⚠️ Modo Teclado en Vivo activado: tu escritura se replicará en las terminales seleccionadas.');
+      } else {
+        showToast('Modo Teclado en Vivo desactivado.');
+      }
+      return next;
+    });
+  };
+
+  const handleSendBroadcastCommand = (command: string) => {
+    const cmd = command.trim();
+    if (!cmd) return;
+    const targets = sessions.filter((s) => selectedBroadcastSessionIds.includes(s.sessionId));
+    if (targets.length === 0) {
+      showToast('Selecciona al menos una terminal para emitir el comando.');
+      return;
+    }
+    const payload = cmd + '\r\n';
+    targets.forEach((s) => {
+      if (s.isLocal) {
+        window.electronAPI.sendLocalData(s.sessionId, payload);
+      } else {
+        window.electronAPI.sendSSHData(s.sessionId, payload);
+      }
+    });
+    showToast(`📡 Comando "${cmd}" emitido a ${targets.length} terminal${targets.length > 1 ? 'es' : ''}.`);
+  };
+
+  const handleTerminalUserInput = (sourceSessionId: string, data: string) => {
+    if (!isLiveBroadcast) return;
+    sessions.forEach((s) => {
+      if (s.sessionId !== sourceSessionId && selectedBroadcastSessionIds.includes(s.sessionId)) {
+        if (s.isLocal) {
+          window.electronAPI.sendLocalData(s.sessionId, data);
+        } else {
+          window.electronAPI.sendSSHData(s.sessionId, data);
+        }
+      }
     });
   };
 
@@ -274,6 +346,17 @@ export default function App() {
       if (isCtrl && e.key.toLowerCase() === 'l' && !isInput) {
         e.preventDefault();
         handleLock();
+        return;
+      }
+
+      // Ctrl+B -> Alternar panel de emisión masiva (Broadcast)
+      if (isCtrl && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        if (sessions.length > 0) {
+          setIsBroadcastOpen((prev) => !prev);
+        } else {
+          showToast('Abre al menos una sesión de terminal para emitir comandos.');
+        }
         return;
       }
 
@@ -634,7 +717,43 @@ export default function App() {
               ))}
             </DropdownMenu.Content>
           </DropdownMenu.Root>
+
+          {/* Botón de Broadcast / Emisión Masiva (estilo Termius) */}
+          {sessions.length > 0 && (
+            <Button
+              size="1"
+              variant={isBroadcastOpen ? 'solid' : 'soft'}
+              color={isLiveBroadcast ? 'amber' : isBroadcastOpen ? 'iris' : 'gray'}
+              onClick={() => setIsBroadcastOpen((prev) => !prev)}
+              title="Emisión de comandos a múltiples terminales (Ctrl+B)"
+              style={{ marginLeft: 'auto', cursor: 'pointer', gap: 6 }}
+            >
+              <Radio size={13} />
+              <span>Broadcast ({selectedBroadcastSessionIds.length}/{sessions.length})</span>
+              {isLiveBroadcast && (
+                <Badge size="1" color="red" variant="solid">
+                  EN VIVO
+                </Badge>
+              )}
+            </Button>
+          )}
         </Flex>
+
+        {/* Panel de Emisión Masiva (Broadcast & Snippets) */}
+        {isBroadcastOpen && sessions.length > 0 && (
+          <BroadcastBar
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            selectedSessionIds={selectedBroadcastSessionIds}
+            isLiveBroadcast={isLiveBroadcast}
+            onToggleSession={handleToggleBroadcastSession}
+            onSelectAll={handleSelectAllBroadcastSessions}
+            onDeselectAll={handleDeselectAllBroadcastSessions}
+            onToggleLiveBroadcast={handleToggleLiveBroadcast}
+            onSendCommand={handleSendBroadcastCommand}
+            onClose={() => setIsBroadcastOpen(false)}
+          />
+        )}
 
         {/* Área de Terminales Persistentes (Mantiene conexiones vivas en DOM) */}
         <Box
@@ -665,6 +784,7 @@ export default function App() {
                   isLocal={s.isLocal}
                   isActive={isVisible}
                   onClose={() => handleCloseSession(s.sessionId)}
+                  onUserInput={(data) => handleTerminalUserInput(s.sessionId, data)}
                 />
               </Box>
             );
