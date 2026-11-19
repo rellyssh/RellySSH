@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Flex, Box, Text, Button, IconButton, Badge, TextField, Tooltip, Separator } from '@radix-ui/themes';
-import { Radio, Send, CheckSquare, Square, X, Zap, Terminal, Server, AlertTriangle } from 'lucide-react';
+import { Radio, Send, CheckSquare, Square, X, Zap, Terminal, Server, AlertTriangle, LayoutGrid, Columns } from 'lucide-react';
 import type { SSHServer } from '../types';
 
 export interface OpenSession {
@@ -15,10 +15,14 @@ export interface BroadcastBarProps {
   activeSessionId: string | null;
   selectedSessionIds: string[];
   isLiveBroadcast: boolean;
+  layoutMode: 'single' | 'grid';
+  gridFilterMode?: 'all' | 'broadcastOnly';
   onToggleSession: (sessionId: string) => void;
   onSelectAll: () => void;
   onDeselectAll: () => void;
   onToggleLiveBroadcast: () => void;
+  onToggleLayoutMode: () => void;
+  onToggleGridFilterMode?: () => void;
   onSendCommand: (command: string) => void;
   onClose: () => void;
 }
@@ -37,10 +41,14 @@ export const BroadcastBar: React.FC<BroadcastBarProps> = ({
   activeSessionId,
   selectedSessionIds,
   isLiveBroadcast,
+  layoutMode,
+  gridFilterMode = 'all',
   onToggleSession,
   onSelectAll,
   onDeselectAll,
   onToggleLiveBroadcast,
+  onToggleLayoutMode,
+  onToggleGridFilterMode,
   onSendCommand,
   onClose
 }) => {
@@ -79,7 +87,7 @@ export const BroadcastBar: React.FC<BroadcastBarProps> = ({
       }}
     >
       <Flex direction="column" gap="2">
-        {/* Fila 1: Encabezado, Selección de Terminales y Toggle de Transmisión en Vivo */}
+        {/* Fila 1: Encabezado, Selección de Terminales, Toggle Mosaico y Toggle de Transmisión en Vivo */}
         <Flex align="center" justify="between" wrap="wrap" gap="2">
           <Flex align="center" gap="2">
             <Radio
@@ -98,6 +106,42 @@ export const BroadcastBar: React.FC<BroadcastBarProps> = ({
           </Flex>
 
           <Flex align="center" gap="2">
+            {/* Toggle Vista en Mosaico (Split Screen / Termius Style) */}
+            <Tooltip content={layoutMode === 'grid' ? 'Cambiar a pestaña individual' : 'Ver todas las terminales en la misma pantalla (Split Grid estilo Termius)'}>
+              <Button
+                size="1"
+                variant={layoutMode === 'grid' ? 'solid' : 'surface'}
+                color="iris"
+                onClick={onToggleLayoutMode}
+                style={{ cursor: 'pointer', gap: 6 }}
+              >
+                {layoutMode === 'grid' ? (
+                  <>
+                    <LayoutGrid size={13} />
+                    <span>Mosaico Activo</span>
+                  </>
+                ) : (
+                  <>
+                    <Columns size={13} />
+                    <span>Dividir Pantalla</span>
+                  </>
+                )}
+              </Button>
+            </Tooltip>
+
+            {layoutMode === 'grid' && onToggleGridFilterMode && sessions.length > selectedSessionIds.length && (
+              <Button
+                size="1"
+                variant="ghost"
+                color="gray"
+                onClick={onToggleGridFilterMode}
+                style={{ cursor: 'pointer', fontSize: 11 }}
+                title="Alternar entre ver todas las terminales o únicamente las que reciben broadcast"
+              >
+                {gridFilterMode === 'broadcastOnly' ? '👁️ Ver todas' : '🎯 Solo broadcast'}
+              </Button>
+            )}
+
             <Tooltip content="Replicar todo lo que tipees en la terminal activa a todas las seleccionadas">
               <Button
                 size="1"

@@ -2,8 +2,8 @@ import React, { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
-import { Box, Flex, Button, Badge } from '@radix-ui/themes';
-import { X, RefreshCw, Copy, ClipboardPaste } from 'lucide-react';
+import { Box, Flex, Button, Badge, IconButton } from '@radix-ui/themes';
+import { X, RefreshCw, Copy, ClipboardPaste, Maximize2, Radio } from 'lucide-react';
 import type { SSHServer, SSHKey } from '../types';
 
 interface Props {
@@ -12,26 +12,48 @@ interface Props {
   sshKey?: SSHKey;
   isLocal?: boolean;
   isActive?: boolean;
+  isGridMode?: boolean;
+  isBroadcastTarget?: boolean;
+  isLiveBroadcast?: boolean;
+  onToggleBroadcast?: () => void;
+  onMaximize?: () => void;
+  onFocus?: () => void;
   onClose: () => void;
   onUserInput?: (data: string) => void;
 }
 
-export const TerminalTab: React.FC<Props> = ({ sessionId, server, sshKey, isLocal, isActive = true, onClose, onUserInput }) => {
+export const TerminalTab: React.FC<Props> = ({
+  sessionId,
+  server,
+  sshKey,
+  isLocal,
+  isActive = true,
+  isGridMode = false,
+  isBroadcastTarget = false,
+  isLiveBroadcast = false,
+  onToggleBroadcast,
+  onMaximize,
+  onFocus,
+  onClose,
+  onUserInput
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalInstanceRef = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
   const onUserInputRef = useRef(onUserInput);
   onUserInputRef.current = onUserInput;
 
   useEffect(() => {
-    if (isActive && terminalInstanceRef.current) {
+    if (terminalInstanceRef.current) {
       setTimeout(() => {
         try {
           terminalInstanceRef.current?.fit.fit();
-          terminalInstanceRef.current?.term.focus();
+          if (isActive) {
+            terminalInstanceRef.current?.term.focus();
+          }
         } catch (_) {}
       }, 50);
     }
-  }, [isActive]);
+  }, [isActive, isGridMode]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -215,53 +237,164 @@ export const TerminalTab: React.FC<Props> = ({ sessionId, server, sshKey, isLoca
   };
 
   return (
-    <Flex direction="column" style={{ width: '100%', height: '100%', background: '#0d1117' }}>
+    <Flex
+      direction="column"
+      style={{
+        width: '100%',
+        height: '100%',
+        background: '#0d1117',
+        borderRadius: isGridMode ? 8 : 0,
+        overflow: 'hidden',
+        border: isGridMode
+          ? isActive
+            ? isLiveBroadcast
+              ? '2px solid var(--amber-9)'
+              : '2px solid var(--iris-9)'
+            : isBroadcastTarget
+            ? '1px solid var(--iris-6)'
+            : '1px solid var(--gray-4)'
+          : 'none',
+        boxShadow: isGridMode && isActive
+          ? isLiveBroadcast
+            ? '0 0 14px rgba(245, 158, 11, 0.35)'
+            : '0 0 14px rgba(94, 106, 210, 0.35)'
+          : 'none',
+        transition: 'border 0.15s ease, box-shadow 0.15s ease'
+      }}
+      onClick={() => {
+        onFocus?.();
+        terminalInstanceRef.current?.term.focus();
+      }}
+    >
       {/* Session header bar */}
       <Flex
         align="center"
         justify="between"
         px="3"
-        py="2"
+        py={isGridMode ? '1' : '2'}
         style={{
-          background: 'rgba(255,255,255,0.02)',
-          borderBottom: '1px solid var(--gray-4)'
+          background: isActive
+            ? isLiveBroadcast
+              ? 'rgba(245, 158, 11, 0.15)'
+              : 'rgba(94, 106, 210, 0.15)'
+            : 'rgba(255,255,255,0.03)',
+          borderBottom: isActive
+            ? isLiveBroadcast
+              ? '1px solid var(--amber-8)'
+              : '1px solid var(--iris-8)'
+            : '1px solid var(--gray-4)',
+          userSelect: 'none',
+          minHeight: 34
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onFocus?.();
+          terminalInstanceRef.current?.term.focus();
         }}
       >
-        <Flex align="center" gap="2">
-          <Badge color={isLocal ? 'blue' : 'green'} variant="surface">
+        <Flex align="center" gap="2" style={{ minWidth: 0, overflow: 'hidden' }}>
+          <Badge color={isLocal ? 'blue' : 'green'} variant="surface" size="1">
             {isLocal ? 'Local' : 'Conectado'}
           </Badge>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
             {isLocal ? 'Terminal Local' : server?.name}
           </span>
           {!isLocal && server && (
-            <span style={{ fontSize: 12, color: 'var(--gray-9)' }}>
+            <span style={{ fontSize: 11, color: 'var(--gray-9)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
               ({server.username}@{server.host}:{server.port})
             </span>
           )}
+
+          {/* Broadcast status toggle pill */}
+          {onToggleBroadcast && (
+            <Badge
+              size="1"
+              color={isBroadcastTarget ? (isLiveBroadcast ? 'amber' : 'iris') : 'gray'}
+              variant={isBroadcastTarget ? 'solid' : 'surface'}
+              style={{
+                cursor: 'pointer',
+                fontSize: 10,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                marginLeft: 4,
+                opacity: isBroadcastTarget ? 1 : 0.65
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleBroadcast();
+              }}
+              title={isBroadcastTarget ? 'En emisión masiva (clic para excluir)' : 'Excluido de emisión (clic para incluir)'}
+            >
+              <Radio size={10} />
+              {isBroadcastTarget ? 'Broadcast' : '+ Broadcast'}
+            </Badge>
+          )}
         </Flex>
 
-        <Flex align="center" gap="1">
-          <Button size="1" variant="ghost" color="gray" onClick={handleCopySelection} title="Copiar selección (Ctrl+C)">
-            <Copy size={13} style={{ marginRight: 4 }} /> Copiar
-          </Button>
-          <Button size="1" variant="ghost" color="gray" onClick={handlePaste} title="Pegar (Ctrl+Shift+V)">
-            <ClipboardPaste size={13} style={{ marginRight: 4 }} /> Pegar
-          </Button>
-          <Button
+        <Flex align="center" gap="1" style={{ flexShrink: 0 }}>
+          {isGridMode && onMaximize && (
+            <IconButton
+              size="1"
+              variant="ghost"
+              color="gray"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMaximize();
+              }}
+              title="Maximizar a pestaña individual"
+            >
+              <Maximize2 size={13} />
+            </IconButton>
+          )}
+          <IconButton
             size="1"
             variant="ghost"
             color="gray"
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
+              handleCopySelection();
+            }}
+            title="Copiar selección (Ctrl+C)"
+          >
+            <Copy size={13} />
+          </IconButton>
+          <IconButton
+            size="1"
+            variant="ghost"
+            color="gray"
+            onClick={(e) => {
+              e.stopPropagation();
+              handlePaste();
+            }}
+            title="Pegar (Ctrl+Shift+V)"
+          >
+            <ClipboardPaste size={13} />
+          </IconButton>
+          <IconButton
+            size="1"
+            variant="ghost"
+            color="gray"
+            onClick={(e) => {
+              e.stopPropagation();
               terminalInstanceRef.current?.fit.fit();
             }}
             title="Ajustar tamaño"
           >
             <RefreshCw size={13} />
-          </Button>
-          <Button size="1" variant="ghost" color="ruby" onClick={onClose}>
-            <X size={14} /> Salir
-          </Button>
+          </IconButton>
+          <IconButton
+            size="1"
+            variant="ghost"
+            color="ruby"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+            title="Cerrar terminal"
+          >
+            <X size={14} />
+          </IconButton>
         </Flex>
       </Flex>
 

@@ -37,7 +37,9 @@ import {
   Sparkles,
   RefreshCw,
   LayoutGrid,
-  Radio
+  Radio,
+  Columns,
+  Maximize2
 } from 'lucide-react';
 import { GitHubLogoIcon } from '@radix-ui/react-icons';
 import type { VaultData, SSHServer, SSHKey } from './types';
@@ -48,6 +50,7 @@ import { TerminalTab } from './components/TerminalTab';
 import { BroadcastBar } from './components/BroadcastBar';
 import { GitHubSyncModal } from './components/GitHubSyncModal';
 import { getGitHubConfig, saveGitHubConfig, pushVaultToGitHub } from './services/githubSync';
+import { getTerminalGridLayout } from './utils/gridLayout';
 import logoSvg from './assets/logo.svg';
 
 interface OpenSession {
@@ -76,7 +79,9 @@ export default function App() {
   const [sessions, setSessions] = useState<OpenSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
-  // Multi-terminal broadcast state (Termius-like)
+  // Multi-terminal layout & broadcast state (Termius-like Split Grid)
+  const [layoutMode, setLayoutMode] = useState<'single' | 'grid'>('single');
+  const [gridFilterMode, setGridFilterMode] = useState<'all' | 'broadcastOnly'>('all');
   const [isBroadcastOpen, setIsBroadcastOpen] = useState<boolean>(false);
   const [isLiveBroadcast, setIsLiveBroadcast] = useState<boolean>(false);
   const [selectedBroadcastSessionIds, setSelectedBroadcastSessionIds] = useState<string[]>([]);
@@ -117,6 +122,8 @@ export default function App() {
     setSelectedBroadcastSessionIds([]);
     setIsBroadcastOpen(false);
     setIsLiveBroadcast(false);
+    setLayoutMode('single');
+    setGridFilterMode('all');
     setActiveSessionId(null);
     showToast('Bóveda bloqueada con éxito.');
   };
@@ -227,7 +234,32 @@ export default function App() {
     setSelectedBroadcastSessionIds((prev) => prev.filter((id) => id !== sessionId));
   };
 
-  // Broadcast handlers (Termius-like multi-terminal execution)
+  // Layout & Broadcast handlers (Termius-like multi-terminal execution & split screen)
+  const handleToggleLayoutMode = () => {
+    setLayoutMode((prev) => {
+      const next = prev === 'grid' ? 'single' : 'grid';
+      showToast(next === 'grid' ? 'Vista en mosaico activada: todas las terminales en pantalla.' : 'Vista de pestaña individual activada.');
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+      return next;
+    });
+  };
+
+  const handleToggleBroadcast = () => {
+    if (sessions.length === 0) {
+      showToast('Abre al menos una sesión de terminal para emitir comandos.');
+      return;
+    }
+    setIsBroadcastOpen((prev) => {
+      const next = !prev;
+      // Al abrir broadcast con 2 o más sesiones, activamos la vista en mosaico automáticamente estilo Termius
+      if (next && sessions.length >= 2) {
+        setLayoutMode('grid');
+        setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+      }
+      return next;
+    });
+  };
+
   const handleToggleBroadcastSession = (sessionId: string) => {
     setSelectedBroadcastSessionIds((prev) =>
       prev.includes(sessionId) ? prev.filter((id) => id !== sessionId) : [...prev, sessionId]
@@ -352,10 +384,17 @@ export default function App() {
       // Ctrl+B -> Alternar panel de emisión masiva (Broadcast)
       if (isCtrl && e.key.toLowerCase() === 'b') {
         e.preventDefault();
-        if (sessions.length > 0) {
-          setIsBroadcastOpen((prev) => !prev);
+        handleToggleBroadcast();
+        return;
+      }
+
+      // Ctrl+Shift+G -> Alternar vista mosaico / pestaña única
+      if (isCtrl && e.shiftKey && e.key.toLowerCase() === 'g') {
+        e.preventDefault();
+        if (sessions.length >= 2) {
+          handleToggleLayoutMode();
         } else {
-          showToast('Abre al menos una sesión de terminal para emitir comandos.');
+          showToast('Abre al menos 2 sesiones para dividir la pantalla.');
         }
         return;
       }
@@ -718,13 +757,28 @@ export default function App() {
             </DropdownMenu.Content>
           </DropdownMenu.Root>
 
+          {/* Botón de alternancia de vista Mosaico / Pestaña única */}
+          {sessions.length >= 2 && (
+            <Button
+              size="1"
+              variant={layoutMode === 'grid' ? 'solid' : 'ghost'}
+              color={layoutMode === 'grid' ? 'iris' : 'gray'}
+              onClick={handleToggleLayoutMode}
+              title="Alternar entre vista en mosaico y pestaña individual (Ctrl+Shift+G)"
+              style={{ borderRadius: '6px 6px 0 0', cursor: 'pointer', gap: 4 }}
+            >
+              {layoutMode === 'grid' ? <LayoutGrid size={13} /> : <Columns size={13} />}
+              <span>{layoutMode === 'grid' ? 'Mosaico' : 'Dividir'}</span>
+            </Button>
+          )}
+
           {/* Botón de Broadcast / Emisión Masiva (estilo Termius) */}
           {sessions.length > 0 && (
             <Button
               size="1"
               variant={isBroadcastOpen ? 'solid' : 'soft'}
               color={isLiveBroadcast ? 'amber' : isBroadcastOpen ? 'iris' : 'gray'}
-              onClick={() => setIsBroadcastOpen((prev) => !prev)}
+              onClick={handleToggleBroadcast}
               title="Emisión de comandos a múltiples terminales (Ctrl+B)"
               style={{ marginLeft: 'auto', cursor: 'pointer', gap: 6 }}
             >
@@ -746,50 +800,89 @@ export default function App() {
             activeSessionId={activeSessionId}
             selectedSessionIds={selectedBroadcastSessionIds}
             isLiveBroadcast={isLiveBroadcast}
+            layoutMode={layoutMode}
+            gridFilterMode={gridFilterMode}
             onToggleSession={handleToggleBroadcastSession}
             onSelectAll={handleSelectAllBroadcastSessions}
             onDeselectAll={handleDeselectAllBroadcastSessions}
             onToggleLiveBroadcast={handleToggleLiveBroadcast}
+            onToggleLayoutMode={handleToggleLayoutMode}
+            onToggleGridFilterMode={() => setGridFilterMode((prev) => (prev === 'all' ? 'broadcastOnly' : 'all'))}
             onSendCommand={handleSendBroadcastCommand}
             onClose={() => setIsBroadcastOpen(false)}
           />
         )}
 
-        {/* Área de Terminales Persistentes (Mantiene conexiones vivas en DOM) */}
-        <Box
-          style={{
-            flex: 1,
-            minHeight: 0,
-            width: '100%',
-            display: activeSessionId ? 'flex' : 'none'
-          }}
-        >
-          {sessions.map((s) => {
-            const sKey = s.server?.keyId ? vault.keys.find((k) => k.id === s.server?.keyId) : undefined;
-            const isVisible = activeSessionId === s.sessionId;
-            return (
-              <Box
-                key={s.sessionId}
-                style={{
-                  display: isVisible ? 'flex' : 'none',
-                  flex: 1,
-                  height: '100%',
-                  width: '100%'
-                }}
-              >
-                <TerminalTab
-                  sessionId={s.sessionId}
-                  server={s.server}
-                  sshKey={sKey}
-                  isLocal={s.isLocal}
-                  isActive={isVisible}
-                  onClose={() => handleCloseSession(s.sessionId)}
-                  onUserInput={(data) => handleTerminalUserInput(s.sessionId, data)}
-                />
-              </Box>
-            );
-          })}
-        </Box>
+        {/* Área de Terminales Persistentes (Mantiene conexiones vivas en DOM sin destruirlas) */}
+        {(() => {
+          const visibleSessionsInGrid = sessions.filter((s) =>
+            gridFilterMode === 'broadcastOnly' ? selectedBroadcastSessionIds.includes(s.sessionId) : true
+          );
+          const gridCount = visibleSessionsInGrid.length > 0 ? visibleSessionsInGrid.length : sessions.length;
+
+          return (
+            <Box
+              style={{
+                flex: 1,
+                minHeight: 0,
+                width: '100%',
+                background: layoutMode === 'grid' ? '#0a0d12' : '#0d1117',
+                display: activeSessionId ? (layoutMode === 'grid' ? 'grid' : 'flex') : 'none',
+                ...(layoutMode === 'grid'
+                  ? {
+                      ...getTerminalGridLayout(gridCount),
+                      gap: '8px',
+                      padding: '8px',
+                      boxSizing: 'border-box'
+                    }
+                  : {})
+              }}
+            >
+              {sessions.map((s) => {
+                const sKey = s.server?.keyId ? vault.keys.find((k) => k.id === s.server?.keyId) : undefined;
+                const isVisibleInGrid = gridFilterMode === 'broadcastOnly'
+                  ? selectedBroadcastSessionIds.includes(s.sessionId)
+                  : true;
+                const isVisible = layoutMode === 'grid' ? isVisibleInGrid : activeSessionId === s.sessionId;
+                const isActive = activeSessionId === s.sessionId;
+
+                return (
+                  <Box
+                    key={s.sessionId}
+                    style={{
+                      display: isVisible ? 'flex' : 'none',
+                      height: '100%',
+                      width: '100%',
+                      minWidth: 0,
+                      minHeight: 0,
+                      flex: layoutMode === 'single' ? 1 : undefined
+                    }}
+                  >
+                    <TerminalTab
+                      sessionId={s.sessionId}
+                      server={s.server}
+                      sshKey={sKey}
+                      isLocal={s.isLocal}
+                      isActive={isActive}
+                      isGridMode={layoutMode === 'grid'}
+                      isBroadcastTarget={selectedBroadcastSessionIds.includes(s.sessionId)}
+                      isLiveBroadcast={isLiveBroadcast}
+                      onToggleBroadcast={() => handleToggleBroadcastSession(s.sessionId)}
+                      onMaximize={() => {
+                        setActiveSessionId(s.sessionId);
+                        setLayoutMode('single');
+                        showToast(`Maximizada terminal "${s.name}".`);
+                      }}
+                      onFocus={() => setActiveSessionId(s.sessionId)}
+                      onClose={() => handleCloseSession(s.sessionId)}
+                      onUserInput={(data) => handleTerminalUserInput(s.sessionId, data)}
+                    />
+                  </Box>
+                );
+              })}
+            </Box>
+          );
+        })()}
 
         {/* VISTA DE SERVIDORES */}
         {!activeSessionId && activeTab === 'servers' && (

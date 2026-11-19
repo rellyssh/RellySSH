@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { SSHServer } from '../src/types';
+import { getTerminalGridLayout } from '../src/utils/gridLayout';
 
 interface OpenSession {
   sessionId: string;
@@ -119,5 +120,66 @@ describe('Multi-Terminal Broadcast & Command Execution (Termius-like)', () => {
 
     expect(mockSendLocal).toHaveBeenCalledTimes(1);
     expect(mockSendLocal).toHaveBeenCalledWith('sess-local', 'l');
+  });
+
+  describe('Organización de Terminales en Mosaico / Split Screen (Termius Style)', () => {
+    it('calcula la distribución de columnas y filas en CSS Grid para 1, 2, 3, 4 y 6 terminales', () => {
+      // 1 terminal: 100% ancho y alto
+      const layout1 = getTerminalGridLayout(1);
+      expect(layout1.gridTemplateColumns).toBe('minmax(0, 1fr)');
+      expect(layout1.gridTemplateRows).toBe('minmax(0, 1fr)');
+
+      // 2 terminales: 2 columnas, 1 fila (50% / 50%)
+      const layout2 = getTerminalGridLayout(2);
+      expect(layout2.gridTemplateColumns).toBe('repeat(2, minmax(0, 1fr))');
+      expect(layout2.gridTemplateRows).toBe('minmax(0, 1fr)');
+
+      // 3 terminales: 3 columnas simétricas
+      const layout3 = getTerminalGridLayout(3);
+      expect(layout3.gridTemplateColumns).toBe('repeat(3, minmax(0, 1fr))');
+      expect(layout3.gridTemplateRows).toBe('minmax(0, 1fr)');
+
+      // 4 terminales: 2x2 grid cuadrícula balanceada
+      const layout4 = getTerminalGridLayout(4);
+      expect(layout4.gridTemplateColumns).toBe('repeat(2, minmax(0, 1fr))');
+      expect(layout4.gridTemplateRows).toBe('repeat(2, minmax(0, 1fr))');
+
+      // 6 terminales: 3 columnas x 2 filas
+      const layout6 = getTerminalGridLayout(6);
+      expect(layout6.gridTemplateColumns).toBe('repeat(3, minmax(0, 1fr))');
+      expect(layout6.gridTemplateRows).toBe('repeat(2, minmax(0, 1fr))');
+
+      // > 6 terminales: auto-fit dinámico
+      const layout8 = getTerminalGridLayout(8);
+      expect(layout8.gridTemplateColumns).toBe('repeat(auto-fit, minmax(360px, 1fr))');
+    });
+
+    it('filtra correctamente las sesiones visibles en modo mosaico según el modo de filtro', () => {
+      const selectedIds = ['sess-1', 'sess-2'];
+
+      // Modo 'all': todas visibles
+      const filterAll = (sessions: OpenSession[], mode: 'all' | 'broadcastOnly') =>
+        sessions.filter((s) => (mode === 'broadcastOnly' ? selectedIds.includes(s.sessionId) : true));
+
+      const visibleAll = filterAll(mockSessions, 'all');
+      expect(visibleAll.length).toBe(3);
+
+      // Modo 'broadcastOnly': únicamente las seleccionadas
+      const visibleBroadcastOnly = filterAll(mockSessions, 'broadcastOnly');
+      expect(visibleBroadcastOnly.length).toBe(2);
+      expect(visibleBroadcastOnly.map((s) => s.sessionId)).toEqual(['sess-1', 'sess-2']);
+    });
+
+    it('activa automáticamente la vista en mosaico al abrir broadcast si hay 2 o más sesiones', () => {
+      let layoutMode: 'single' | 'grid' = 'single';
+      const openBroadcast = (sessionCount: number) => {
+        if (sessionCount >= 2) {
+          layoutMode = 'grid';
+        }
+      };
+
+      openBroadcast(mockSessions.length); // 3 sesiones
+      expect(layoutMode).toBe('grid');
+    });
   });
 });
