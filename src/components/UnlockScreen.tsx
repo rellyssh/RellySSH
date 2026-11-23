@@ -41,6 +41,7 @@ import {
   clearGitHubConfig,
   DEFAULT_REPO_NAME,
   pushVaultToGitHubRepo,
+  pullVaultFromGitHubRepo,
   type GitHubSyncConfig,
   type GitHubUser
 } from '../services/githubSync';
@@ -271,12 +272,22 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
         throw new Error('No se detectó una sesión activa de GitHub.');
       }
 
-      if (vaultFileExistsInRepo || downloadedEncryptedContent) {
-        // CASO A: La bóveda ya existía en GitHub -> guardar raw local y descifrar
-        setStatusMessage('Guardando copia local y derivando clave con Argon2id...');
+      // CASO A: Usuario vinculado previamente o bóveda existente en GitHub
+      if (savedConfig || vaultFileExistsInRepo || downloadedEncryptedContent) {
+        setStatusMessage('Verificando copia local y derivando clave con Argon2id...');
         const progressPromise = simulateProgress('Descifrando bóveda con KEK/DEK...', 1000);
 
-        if (downloadedEncryptedContent) {
+        // Si es usuario recurrente y hay conexión, sincronizar última versión de GitHub
+        if (savedConfig && token && authenticatedUser?.login) {
+          try {
+            const pullRes = await pullVaultFromGitHubRepo(token, authenticatedUser.login, vaultRepoName);
+            if (pullRes.success && pullRes.encryptedContent) {
+              await window.electronAPI.saveRawVault(pullRes.encryptedContent, filePath || undefined);
+            }
+          } catch {
+            // Tolerante a fallos de red: si está offline, continúa con la copia local existente
+          }
+        } else if (downloadedEncryptedContent) {
           await window.electronAPI.saveRawVault(downloadedEncryptedContent, filePath || undefined);
         }
 
@@ -285,7 +296,7 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
 
         if (!res.success || !res.data) {
           setIsProcessing(false);
-          setError(res.error || 'Contraseña incorrecta para descifrar la bóveda de tu repositorio.');
+          setError(res.error || 'Contraseña incorrecta para descifrar la bóveda.');
           return;
         }
 
@@ -616,6 +627,10 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
                           clearGitHubConfig();
                           setSavedConfig(null);
                           setAuthenticatedUser(null);
+                          setActiveGitHubToken('');
+                          setDownloadedEncryptedContent(null);
+                          setVaultFileExistsInRepo(false);
+                          setMode('github-login');
                         }}
                       >
                         Cambiar de cuenta

@@ -84,11 +84,15 @@ function createWindow() {
 
   ipcMain.handle('vault:unlock', async (_, { password, filePath }: { password: string; filePath?: string }) => {
     const p = filePath || currentVaultPath || defaultVaultFile;
+    const pwd = password || cachedMasterPassword;
+    if (!pwd) {
+      return { success: false, error: 'Se requiere una contraseña maestra.' };
+    }
     try {
       const payload = await readVaultFromFile(p);
-      const { data, isLegacyV1 } = await decryptAnyVault<VaultData>(payload, password);
+      const { data, isLegacyV1 } = await decryptAnyVault<VaultData>(payload, pwd);
       currentVaultPath = p;
-      cachedMasterPassword = password;
+      cachedMasterPassword = pwd;
       return { success: true, data, filePath: p, isLegacyV1 };
     } catch (err: any) {
       return { success: false, error: 'Contraseña incorrecta o archivo de bóveda corrupto.' };

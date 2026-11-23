@@ -90,8 +90,12 @@ export const mobileBridge: IElectronAPI = {
       if (!stored) {
         return { success: false, error: 'No se encontró ninguna bóveda en el dispositivo.' };
       }
-      const data = await decryptMobileVault<VaultData>(stored, password);
-      cachedMobilePassword = password;
+      const pwd = password || cachedMobilePassword;
+      if (!pwd) {
+        return { success: false, error: 'Se requiere una contraseña maestra.' };
+      }
+      const data = await decryptMobileVault<VaultData>(stored, pwd);
+      cachedMobilePassword = pwd;
       return { success: true, data, filePath: filePath || STORAGE_DEFAULT_PATH };
     } catch {
       return { success: false, error: 'Contraseña incorrecta o bóveda dañada.' };
@@ -143,6 +147,13 @@ export const mobileBridge: IElectronAPI = {
 
   selectFileToOpen: async () => null,
   selectFileToSave: async () => STORAGE_DEFAULT_PATH,
+  openExternal: async (url: string) => {
+    if (typeof window !== 'undefined' && typeof window.open === 'function') {
+      window.open(url, '_blank');
+      return true;
+    }
+    return false;
+  },
 
   readKeyFile: async () => {
     return new Promise((resolve) => {

@@ -182,6 +182,28 @@ describe('RellySSH GitHub Auth & Device Flow Service', () => {
       expect(result.error).toContain('cancelado');
     });
 
+    it('should immediately interrupt polling when AbortSignal triggers mid-interval', async () => {
+      const controller = new AbortController();
+
+      // Trigger abort after 15ms while interval is configured to 10 seconds
+      setTimeout(() => controller.abort(), 15);
+
+      const start = Date.now();
+      const result = await pollDeviceTokenUntilComplete(
+        'client_id',
+        'device_code',
+        10, // 10 seconds interval
+        60,
+        undefined,
+        controller.signal
+      );
+      const elapsed = Date.now() - start;
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('cancelado');
+      expect(elapsed).toBeLessThan(500); // must abort immediately, never wait 10s
+    });
+
     it('should fail immediately when expired_token error is returned', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
         ok: true,

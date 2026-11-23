@@ -202,8 +202,18 @@ export async function pollDeviceTokenUntilComplete(
       return { success: false, error: 'Proceso cancelado por el usuario.' };
     }
 
-    // Wait for the poll interval
-    await new Promise((resolve) => setTimeout(resolve, intervalSeconds * 1000));
+    // Wait for the poll interval or immediate cancellation
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, intervalSeconds * 1000);
+      const onAbort = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
 
     if (signal?.aborted) {
       return { success: false, error: 'Proceso cancelado por el usuario.' };
