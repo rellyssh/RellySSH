@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { encryptVaultV2, decryptAnyVault, writeVaultToFile, readVaultFromFile, SecurityProfile } from './crypto';
@@ -194,6 +194,60 @@ function createWindow() {
     const content = await fs.readFile(filePath, 'utf8');
     const name = path.basename(filePath);
     return { name, content };
+  });
+
+  // Shell & External URL Handler
+  ipcMain.handle('shell:openExternal', async (_, url: string) => {
+    if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
+      await shell.openExternal(url);
+      return true;
+    }
+    return false;
+  });
+
+  // GitHub Device Flow Handlers (CORS-immune Native Backend)
+  ipcMain.handle('github:requestDeviceCode', async (_, { clientId, scopes }: { clientId: string; scopes?: string }) => {
+    try {
+      const res = await fetch('https://github.com/login/device/code', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          client_id: clientId,
+          scope: scopes || 'repo,gist,read:user'
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: data.error_description || data.message || `Error ${res.status}` };
+      }
+      return { success: true, data };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('github:pollDeviceToken', async (_, { clientId, deviceCode }: { clientId: string; deviceCode: string }) => {
+    try {
+      const res = await fetch('https://github.com/login/oauth/access_token', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          client_id: clientId,
+          device_code: deviceCode,
+          grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
+        })
+      });
+      const data = await res.json();
+      return data;
+    } catch (err: any) {
+      return { error: 'network_error', error_description: err.message };
+    }
   });
 
   if (process.env.VITE_DEV_SERVER_URL) {

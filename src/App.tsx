@@ -48,7 +48,7 @@ import { ServerModal } from './components/ServerModal';
 import { KeyModal } from './components/KeyModal';
 import { TerminalTab } from './components/TerminalTab';
 import { BroadcastBar } from './components/BroadcastBar';
-import { GitHubSyncModal } from './components/GitHubSyncModal';
+import { GitHubSyncPanel } from './components/GitHubSyncPanel';
 import { getGitHubConfig, saveGitHubConfig, pushVaultToGitHub } from './services/githubSync';
 import { getTerminalGridLayout } from './utils/gridLayout';
 import logoSvg from './assets/logo.svg';
@@ -63,7 +63,7 @@ interface OpenSession {
 export default function App() {
   const [vault, setVault] = useState<VaultData | null>(null);
   const [currentPath, setCurrentPath] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'servers' | 'keys'>('servers');
+  const [activeTab, setActiveTab] = useState<'servers' | 'keys' | 'github'>('servers');
   const [showMigrationBanner, setShowMigrationBanner] = useState<boolean>(false);
   const [serverSearch, setServerSearch] = useState<string>('');
   const [selectedGroup, setSelectedGroup] = useState<string>('ALL');
@@ -73,7 +73,6 @@ export default function App() {
   const [isServerModalOpen, setIsServerModalOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<SSHServer | null>(null);
   const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
-  const [isGitHubModalOpen, setIsGitHubModalOpen] = useState(false);
 
   // Active SSH & local terminal sessions
   const [sessions, setSessions] = useState<OpenSession[]>([]);
@@ -545,6 +544,19 @@ export default function App() {
             </Button>
 
             <Button
+              variant={activeTab === 'github' && !activeSessionId ? 'solid' : 'ghost'}
+              color="iris"
+              style={{ justifyContent: 'flex-start', cursor: 'pointer' }}
+              onClick={() => {
+                setActiveTab('github');
+                setActiveSessionId(null);
+              }}
+            >
+              <GitHubLogoIcon width={16} height={16} style={{ marginRight: 8 }} />
+              GitHub Sync
+            </Button>
+
+            <Button
               variant="soft"
               color="blue"
               style={{ justifyContent: 'flex-start', cursor: 'pointer', marginTop: 4 }}
@@ -630,7 +642,16 @@ export default function App() {
               <Button size="1" variant="soft" color="gray" style={{ flex: 1 }} onClick={handleExportVault}>
                 <Download size={13} style={{ marginRight: 4 }} /> Exportar
               </Button>
-              <Button size="1" variant="soft" color="iris" style={{ flex: 1 }} onClick={() => setIsGitHubModalOpen(true)}>
+              <Button
+                size="1"
+                variant={activeTab === 'github' && !activeSessionId ? 'solid' : 'soft'}
+                color="iris"
+                style={{ flex: 1 }}
+                onClick={() => {
+                  setActiveTab('github');
+                  setActiveSessionId(null);
+                }}
+              >
                 <GitHubLogoIcon width={13} height={13} style={{ marginRight: 4 }} /> GitHub
               </Button>
             </Flex>
@@ -1198,6 +1219,15 @@ export default function App() {
             </ScrollArea>
           </Flex>
         )}
+
+        {/* VISTA DE SINCRONIZACIÓN CON GITHUB (INTEGRADA, SIN MODALES) */}
+        {!activeSessionId && activeTab === 'github' && (
+          <GitHubSyncPanel
+            onVaultUpdated={(data) => setVault(data)}
+            showToast={showToast}
+            onBackToServers={() => setActiveTab('servers')}
+          />
+        )}
       </Flex>
 
       {/* Modales */}
@@ -1213,13 +1243,6 @@ export default function App() {
         open={isKeyModalOpen}
         onOpenChange={setIsKeyModalOpen}
         onSave={handleSaveKey}
-      />
-
-      <GitHubSyncModal
-        isOpen={isGitHubModalOpen}
-        onClose={() => setIsGitHubModalOpen(false)}
-        onVaultUpdated={(data) => setVault(data)}
-        showToast={showToast}
       />
     </Flex>
   );

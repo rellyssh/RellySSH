@@ -31,6 +31,10 @@ export interface IElectronAPI {
   onSSHData: (sessionId: string, callback: (data: string) => void) => () => void;
   onSSHError: (sessionId: string, callback: (error: string) => void) => () => void;
   onSSHClose: (sessionId: string, callback: () => void) => () => void;
+
+  openExternal?: (url: string) => Promise<boolean>;
+  requestDeviceCode?: (clientId: string, scopes?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+  pollDeviceToken?: (clientId: string, deviceCode: string) => Promise<any>;
 }
 
 declare global {

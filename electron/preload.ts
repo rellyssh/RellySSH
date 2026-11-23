@@ -71,5 +71,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const listener = () => callback();
     ipcRenderer.on(channel, listener);
     return () => ipcRenderer.removeListener(channel, listener);
-  }
+  },
+
+  // Shell & External URL API
+  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+
+  // GitHub Device Flow APIs
+  requestDeviceCode: (clientId: string, scopes?: string) =>
+    ipcRenderer.invoke('github:requestDeviceCode', { clientId, scopes }),
+  pollDeviceToken: (clientId: string, deviceCode: string) =>
+    ipcRenderer.invoke('github:pollDeviceToken', { clientId, deviceCode })
 });
