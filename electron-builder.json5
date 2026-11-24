@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "io.github.rellyssh",
-  "productName": "RellySSH",
+  "productName": "Terminal RellySSH",
   "directories": {
     "output": "dist-release",
     "buildResources": "build"
@@ -9,6 +9,7 @@
   "files": [
     "dist/**/*",
     "dist-electron/**/*",
+    "public/**/*",
     "package.json"
   ],
   "asar": true,
@@ -22,9 +23,18 @@
       { "target": "deb", "arch": ["x64"] },
       { "target": "rpm", "arch": ["x64"] }
     ],
-    "category": "Network;Utility;Development;",
+    "category": "System;TerminalEmulator;Network;Utility;Development;",
     "maintainer": "RellySSH Team <support@rellyssh.io>",
-    "synopsis": "Free, open-source & zero-knowledge cross-platform SSH client"
+    "synopsis": "Emulador de terminal y cliente SSH seguro de código abierto con bóveda cifrada",
+    "desktop": {
+      "entry": {
+        "Name": "Terminal RellySSH",
+        "GenericName": "Terminal SSH",
+        "Comment": "Terminal SSH segura y multiplataforma con bóveda cifrada",
+        "Keywords": "terminal;console;ssh;remote;shell;command;prompt;rellyssh;term;emulador;",
+        "Categories": "System;TerminalEmulator;Network;Utility;Development;"
+      }
+    }
   },
   "win": {
     "target": [

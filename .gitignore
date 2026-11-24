@@ -13,8 +13,9 @@ dist-release/
 dist-apk/
 build-apk/
 release/
-build/
 out/
+!build/icon.png
+!build/icons/**
 
 # Environment and Local Configs
 .env

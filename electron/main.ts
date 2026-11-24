@@ -16,12 +16,14 @@ let cachedMasterPassword: string | null = null;
 const defaultVaultFile = path.join(app.getPath('userData'), 'relly_servers.vault');
 
 function createWindow() {
+  const iconPath = path.join(__dirname, '../public/icon.png');
   win = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'RellySSH',
+    title: 'Terminal RellySSH',
+    icon: iconPath,
     backgroundColor: '#111113',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -251,6 +253,75 @@ function createWindow() {
       return data;
     } catch (err: any) {
       return { error: 'network_error', error_description: err.message };
+    }
+  });
+
+  // App Version Handler
+  ipcMain.handle('app:getVersion', () => {
+    return app.getVersion();
+  });
+
+  // Updater & SHA-256 Hash Verification Handlers
+  ipcMain.handle('updater:verifyFileHash', async (_, { filePath, expectedHash }: { filePath: string; expectedHash?: string }) => {
+    try {
+      const fileBuffer = await fs.readFile(filePath);
+      const nodeCrypto = await import('node:crypto');
+      const actualHash = nodeCrypto.createHash('sha256').update(fileBuffer).digest('hex').toLowerCase();
+      const matches = expectedHash ? actualHash === expectedHash.toLowerCase().trim() : true;
+      return { success: true, actualHash, matches, filePath, fileName: path.basename(filePath) };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('updater:selectFileAndVerify', async (_, { expectedHash }: { expectedHash?: string }) => {
+    if (!win) return { success: false, error: 'No hay ventana activa' };
+    const res = await dialog.showOpenDialog(win, {
+      title: 'Seleccionar archivo descargado para verificar hash SHA-256',
+      filters: [
+        { name: 'Paquetes de instalación (*.AppImage, *.deb, *.rpm, *.exe, *.dmg, *.zip, *.apk)', extensions: ['AppImage', 'deb', 'rpm', 'exe', 'dmg', 'zip', 'apk'] },
+        { name: 'Todos los archivos', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    });
+    if (res.canceled || res.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+    const filePath = res.filePaths[0];
+    const fileBuffer = await fs.readFile(filePath);
+    const nodeCrypto = await import('node:crypto');
+    const actualHash = nodeCrypto.createHash('sha256').update(fileBuffer).digest('hex').toLowerCase();
+    const matches = expectedHash ? actualHash === expectedHash.toLowerCase().trim() : true;
+    return { success: true, actualHash, matches, filePath, fileName: path.basename(filePath) };
+  });
+
+  ipcMain.handle('updater:downloadAndVerify', async (_, { url, fileName, expectedHash }: { url: string; fileName: string; expectedHash?: string }) => {
+    try {
+      const downloadsDir = app.getPath('downloads');
+      const targetPath = path.join(downloadsDir, fileName);
+
+      const res = await fetch(url);
+      if (!res.ok) {
+        return { success: false, error: `Error HTTP ${res.status} al descargar el archivo.` };
+      }
+      const arrayBuffer = await res.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      const nodeCrypto = await import('node:crypto');
+      const actualHash = nodeCrypto.createHash('sha256').update(buffer).digest('hex').toLowerCase();
+      const matches = expectedHash ? actualHash === expectedHash.toLowerCase().trim() : true;
+
+      await fs.writeFile(targetPath, buffer);
+      return {
+        success: true,
+        filePath: targetPath,
+        fileName,
+        actualHash,
+        matches,
+        size: buffer.length
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message };
     }
   });
 

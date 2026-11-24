@@ -35,6 +35,11 @@ export interface IElectronAPI {
   openExternal?: (url: string) => Promise<boolean>;
   requestDeviceCode?: (clientId: string, scopes?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
   pollDeviceToken?: (clientId: string, deviceCode: string) => Promise<any>;
+
+  getAppVersion?: () => Promise<string>;
+  verifyFileHash?: (filePath: string, expectedHash?: string) => Promise<{ success: boolean; actualHash?: string; matches?: boolean; filePath?: string; fileName?: string; error?: string }>;
+  selectFileAndVerify?: (expectedHash?: string) => Promise<{ success: boolean; actualHash?: string; matches?: boolean; filePath?: string; fileName?: string; canceled?: boolean; error?: string }>;
+  downloadAndVerifyAsset?: (url: string, fileName: string, expectedHash?: string) => Promise<{ success: boolean; filePath?: string; fileName?: string; actualHash?: string; matches?: boolean; size?: number; error?: string }>;
 }
 
 declare global {

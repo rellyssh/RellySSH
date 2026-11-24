@@ -80,5 +80,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   requestDeviceCode: (clientId: string, scopes?: string) =>
     ipcRenderer.invoke('github:requestDeviceCode', { clientId, scopes }),
   pollDeviceToken: (clientId: string, deviceCode: string) =>
-    ipcRenderer.invoke('github:pollDeviceToken', { clientId, deviceCode })
+    ipcRenderer.invoke('github:pollDeviceToken', { clientId, deviceCode }),
+
+  // App & Updater Checksum APIs
+  getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
+  verifyFileHash: (filePath: string, expectedHash?: string) =>
+    ipcRenderer.invoke('updater:verifyFileHash', { filePath, expectedHash }),
+  selectFileAndVerify: (expectedHash?: string) =>
+    ipcRenderer.invoke('updater:selectFileAndVerify', { expectedHash }),
+  downloadAndVerifyAsset: (url: string, fileName: string, expectedHash?: string) =>
+    ipcRenderer.invoke('updater:downloadAndVerify', { url, fileName, expectedHash })
 });

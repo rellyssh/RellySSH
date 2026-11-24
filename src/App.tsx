@@ -49,7 +49,9 @@ import { KeyModal } from './components/KeyModal';
 import { TerminalTab } from './components/TerminalTab';
 import { BroadcastBar } from './components/BroadcastBar';
 import { GitHubSyncPanel } from './components/GitHubSyncPanel';
+import { UpdatePanel } from './components/UpdatePanel';
 import { getGitHubConfig, saveGitHubConfig, pushVaultToGitHub } from './services/githubSync';
+import { checkForUpdates, type UpdateCheckResult } from './services/updateChecker';
 import { getTerminalGridLayout } from './utils/gridLayout';
 import logoSvg from './assets/logo.svg';
 
@@ -63,11 +65,15 @@ interface OpenSession {
 export default function App() {
   const [vault, setVault] = useState<VaultData | null>(null);
   const [currentPath, setCurrentPath] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'servers' | 'keys' | 'github'>('servers');
+  const [activeTab, setActiveTab] = useState<'servers' | 'keys' | 'github' | 'updates'>('servers');
   const [showMigrationBanner, setShowMigrationBanner] = useState<boolean>(false);
   const [serverSearch, setServerSearch] = useState<string>('');
   const [selectedGroup, setSelectedGroup] = useState<string>('ALL');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Revisor de Actualizaciones y Hashes
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
+  const [dismissedUpdateBanner, setDismissedUpdateBanner] = useState<boolean>(false);
 
   // Modals
   const [isServerModalOpen, setIsServerModalOpen] = useState(false);
@@ -86,6 +92,15 @@ export default function App() {
   const [selectedBroadcastSessionIds, setSelectedBroadcastSessionIds] = useState<string[]>([]);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Comprobación de actualizaciones en segundo plano al iniciar
+  useEffect(() => {
+    checkForUpdates().then((res) => {
+      if (res.success && res.hasUpdate) {
+        setUpdateInfo(res);
+      }
+    }).catch(() => {});
+  }, []);
 
   const showToast = (message: string) => {
     setToastMessage(message);
@@ -506,12 +521,17 @@ export default function App() {
         {/* Encabezado del Sidebar */}
         <Flex align="center" justify="between" px="3" py="3" className="titlebar-drag-region" style={{ borderBottom: '1px solid var(--gray-4)' }}>
           <Flex align="center" gap="2">
-            <Box style={{ width: 26, height: 26, filter: 'drop-shadow(0 0 6px rgba(33, 212, 245, 0.5))' }}>
-              <img src={logoSvg} alt="Logo" style={{ width: '100%', height: '100%' }} />
+            <Box style={{ width: 28, height: 28, filter: 'drop-shadow(0 0 8px rgba(33, 212, 245, 0.6))', display: 'flex', alignItems: 'center' }}>
+              <img src={logoSvg} alt="Terminal RellySSH Logo" style={{ width: '100%', height: '100%' }} />
             </Box>
-            <Heading size="3" weight="bold">
-              RellySSH
-            </Heading>
+            <Flex direction="column">
+              <Heading size="3" weight="bold" style={{ lineHeight: 1.1 }}>
+                Terminal RellySSH
+              </Heading>
+              <Text size="1" color="gray" style={{ fontSize: 10 }}>
+                v1.3.0
+              </Text>
+            </Flex>
           </Flex>
 
           <Tooltip content="Bloquear Bóveda (Ctrl+L)">
@@ -561,6 +581,24 @@ export default function App() {
             >
               <GitHubLogoIcon width={16} height={16} style={{ marginRight: 8 }} />
               GitHub Sync
+            </Button>
+
+            <Button
+              variant={activeTab === 'updates' && !activeSessionId ? 'solid' : 'ghost'}
+              color={updateInfo?.hasUpdate ? 'cyan' : 'iris'}
+              style={{ justifyContent: 'flex-start', cursor: 'pointer' }}
+              onClick={() => {
+                setActiveTab('updates');
+                setActiveSessionId(null);
+              }}
+            >
+              <RefreshCw size={16} style={{ marginRight: 8 }} />
+              Actualizaciones
+              {updateInfo?.hasUpdate && (
+                <Badge size="1" color="cyan" style={{ marginLeft: 'auto' }}>
+                  Nuevo
+                </Badge>
+              )}
             </Button>
 
             <Button
@@ -691,6 +729,51 @@ export default function App() {
               </Button>
               <Button size="1" variant="ghost" color="gray" onClick={() => setShowMigrationBanner(false)}>
                 Recordar más tarde
+              </Button>
+            </Flex>
+          </Flex>
+        )}
+
+        {/* Banner de Actualización Disponible (Integrado en UI, sin modal) */}
+        {updateInfo?.hasUpdate && !dismissedUpdateBanner && (
+          <Flex
+            align="center"
+            justify="between"
+            px="4"
+            py="2"
+            style={{
+              background: 'linear-gradient(90deg, #091b3a, #102d62)',
+              borderBottom: '1px solid rgba(33, 212, 245, 0.3)',
+              color: 'white'
+            }}
+          >
+            <Flex align="center" gap="2">
+              <Sparkles size={16} color="#21d4f5" />
+              <Text size="2" weight="medium">
+                ⚡ ¡Nueva versión disponible: <strong style={{ color: '#21d4f5' }}>{updateInfo.latestRelease?.tagName}</strong>! ¿Deseas verificar los hashes SHA-256 y actualizar?
+              </Text>
+            </Flex>
+            <Flex gap="2" align="center">
+              <Button
+                size="1"
+                variant="solid"
+                color="cyan"
+                onClick={() => {
+                  setActiveTab('updates');
+                  setActiveSessionId(null);
+                }}
+                style={{ cursor: 'pointer' }}
+              >
+                Revisar y Actualizar
+              </Button>
+              <Button
+                size="1"
+                variant="ghost"
+                color="gray"
+                onClick={() => setDismissedUpdateBanner(true)}
+                style={{ cursor: 'pointer' }}
+              >
+                Descartar
               </Button>
             </Flex>
           </Flex>
@@ -1233,6 +1316,16 @@ export default function App() {
             onVaultUpdated={(data) => setVault(data)}
             showToast={showToast}
             onBackToServers={() => setActiveTab('servers')}
+          />
+        )}
+
+        {/* VISTA DE REVISOR DE ACTUALIZACIONES Y HASHES (INTEGRADA, SIN MODALES) */}
+        {!activeSessionId && activeTab === 'updates' && (
+          <UpdatePanel
+            showToast={showToast}
+            onBackToServers={() => setActiveTab('servers')}
+            initialResult={updateInfo}
+            onCheckCompleted={(res) => setUpdateInfo(res)}
           />
         )}
       </Flex>

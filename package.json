@@ -1,7 +1,7 @@
 {
   "name": "rellyssh",
   "version": "1.3.0",
-  "description": "Modern, lightweight, free & open-source cross-platform SSH client with encrypted zero-knowledge vault",
+  "description": "Terminal RellySSH - Cliente SSH y emulador de terminal multiplataforma moderno con bóveda cifrada de conocimiento cero",
   "main": "dist-electron/main.js",
   "scripts": {
     "test": "vitest run",
@@ -18,14 +18,19 @@
     "dist:mac": "npm run build && electron-builder --mac"
   },
   "keywords": [
-    "ssh",
-    "ssh-client",
-    "vault",
     "terminal",
+    "terminal-emulator",
+    "ssh",
+    "ssh-terminal",
+    "ssh-client",
+    "console",
+    "shell",
+    "vault",
     "electron",
     "radix-ui",
     "encrypted-vault"
   ],
+  "author": "RellySSH Team <support@rellyssh.io>",
   "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",

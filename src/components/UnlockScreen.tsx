@@ -462,18 +462,18 @@ export const UnlockScreen: React.FC<Props> = ({ onUnlock }) => {
           <Flex direction="column" align="center" gap="2" mb="1">
             <Box
               style={{
-                width: 68,
-                height: 68,
-                filter: 'drop-shadow(0 0 15px rgba(33, 212, 245, 0.45))'
+                width: 76,
+                height: 76,
+                filter: 'drop-shadow(0 0 18px rgba(33, 212, 245, 0.55))'
               }}
             >
-              <img src={logoSvg} alt="RellySSH Logo" style={{ width: '100%', height: '100%' }} />
+              <img src={logoSvg} alt="Terminal RellySSH Logo" style={{ width: '100%', height: '100%' }} />
             </Box>
             <Heading size="6" weight="bold" style={{ color: '#ffffff', letterSpacing: '-0.5px' }}>
-              RellySSH
+              Terminal RellySSH
             </Heading>
             <Text size="2" style={{ color: '#88a0c5', textAlign: 'center' }}>
-              Cliente SSH Seguro • Cero Conocimiento • <strong>Argon2id + AES-256-GCM</strong>
+              Terminal SSH &amp; Emulador Seguro • Cero Conocimiento • <strong>Argon2id + AES-256-GCM</strong>
             </Text>
           </Flex>
 
