@@ -194,9 +194,16 @@ export default function App() {
 
   const handleSaveKey = async (key: SSHKey) => {
     if (!vault) return;
-    const updatedKeys = [...vault.keys, key];
+    const exists = vault.keys.some((k) => k.id === key.id);
+    let updatedKeys: SSHKey[];
+    if (exists) {
+      updatedKeys = vault.keys.map((k) => (k.id === key.id ? key : k));
+      showToast(`Clave SSH "${key.name}" actualizada.`);
+    } else {
+      updatedKeys = [...vault.keys, key];
+      showToast(`Clave SSH "${key.name}" guardada en la bóveda.`);
+    }
     await persistVault({ ...vault, keys: updatedKeys });
-    showToast(`Clave SSH "${key.name}" guardada en la bóveda.`);
   };
 
   const handleDeleteKey = async (id: string) => {
